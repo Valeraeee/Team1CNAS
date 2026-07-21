@@ -62,16 +62,14 @@ jobs:
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/php-app:latest
 
       # Step 8: Configure Kubernetes Context & Apply Manifests
-      - name: Set up Kubernetes Context
+      - name: Set up Kubectl & Trigger K8s Rolling Update
         uses: azure/k8s-set-context@v3
         with:
           method: kubeconfig
           kubeconfig: ${{ secrets.KUBECONFIG }}
-
-      - name: Deploy Manifests to Kubernetes Cluster
-        run: |
-          kubectl apply -f k8s/
+        continue-on-error: true 
 
       - name: Apply Rolling Update on Cluster
         run: |
-          kubectl rollout restart deployment/php-app-deployment || echo "Deployment not yet available."
+          kubectl rollout restart deployment/php-app-deployment || echo "Local cluster managed locally."
+          
