@@ -61,18 +61,7 @@ jobs:
         run: |
           docker push ${{ secrets.DOCKERHUB_USERNAME }}/php-app:latest
 
-      # Step 8: Trigger Deployment on Kubernetes Cluster
-      - name: Set up Kubectl & Trigger K8s Rolling Update
-        uses: azure/k8s-set-context@v3
-        with:
-          method: kubeconfig
-          kubeconfig: ${{ secrets.KUBECONFIG }}
-        continue-on-error: true # Keeps pipeline passing while waiting for Reuben's cluster
-
-      - name: Apply Rolling Update on Cluster
-        run: |
-          kubectl rollout restart deployment/php-app-deployment || echo "Cluster not yet available."
-
+      # Step 8: Configure Kubernetes Context & Apply Manifests
       - name: Set up Kubernetes Context
         uses: azure/k8s-set-context@v3
         with:
@@ -82,3 +71,7 @@ jobs:
       - name: Deploy Manifests to Kubernetes Cluster
         run: |
           kubectl apply -f k8s/
+
+      - name: Apply Rolling Update on Cluster
+        run: |
+          kubectl rollout restart deployment/php-app-deployment || echo "Deployment not yet available."
