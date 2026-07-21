@@ -23,6 +23,7 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.1'
+          
       - name: Run PHP Syntax Check
         run: php -l index.php
 
@@ -71,5 +72,5 @@ jobs:
 
       - name: Apply Rolling Update on Cluster
         run: |
-          kubectl rollout restart deployment/php-app-deployment || echo "Local cluster managed locally."
+          kubectl rollout restart deployment/php-app-deployment || echo "CD Pipeline: Local private cluster node targeted."
           
