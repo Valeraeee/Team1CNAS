@@ -2,14 +2,16 @@ apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: app-ingress
+  namespace: default
   annotations:
-    cert-manager.io/cluster-issuer: "letsencrypt-prod" # Instructs cert-manager to issue a certificate
+    cert-manager.io/cluster-issuer: "selfsigned-issuer"
+    nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
   ingressClassName: nginx
   tls:
   - hosts:
     - app.cnas.local
-    secretName: cnas-app-tls # Secret where cert-manager saves the SSL certificate
+    secretName: app-cnas-tls
   rules:
   - host: app.cnas.local
     http:
