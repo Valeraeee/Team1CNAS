@@ -72,3 +72,13 @@ jobs:
       - name: Apply Rolling Update on Cluster
         run: |
           kubectl rollout restart deployment/php-app-deployment || echo "Cluster not yet available."
+
+      - name: Set up Kubernetes Context
+        uses: azure/k8s-set-context@v3
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBECONFIG }}
+
+      - name: Deploy Manifests to Kubernetes Cluster
+        run: |
+          kubectl apply -f k8s/
