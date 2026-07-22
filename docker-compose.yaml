@@ -1,0 +1,20 @@
+services:
+  mysql:
+    build: ./mysql
+    ports:
+      - "3306:3306"
+    networks:
+      - UwU
+
+  php-webapp:
+    build: ./php-webapp
+    ports:
+      - "8080:80"
+    depends_on:
+      - mysql
+    networks:
+      - UwU
+
+networks:
+  UwU:
+    driver: bridge
