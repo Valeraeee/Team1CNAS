@@ -1,0 +1,365 @@
+# ============================================================
+#  Kubernetes Network Policies – Least-Privilege Traffic Model
+#  Author: Jun Wei (Task 5 – Network Security)
+#
+#  Design principle: default-deny everything, then explicitly
+#  allow only the traffic paths that are required.
+#
+#  Traffic matrix after these policies are applied:
+#  ┌──────────────────────┬──────────────┬─────────────────────┐
+#  │ Source               │ Destination  │ Port / Protocol     │
+#  ├──────────────────────┼──────────────┼─────────────────────┤
+#  │ Internet/LoadBalancer│ php-app      │ TCP 80 (HTTP)       │
+#  │ php-app              │ mysql        │ TCP 3306            │
+#  │ monitoring ns        │ php-app      │ TCP 80 (scrape)     │
+#  │ monitoring ns        │ mysql-exporter│ TCP 9104 (scrape)  │
+#  │ Everything else      │ mysql        │ DENIED              │
+#  └──────────────────────┴──────────────┴─────────────────────┘
+# ============================================================
+
+# ── 1. Default-deny ALL ingress & egress in the default namespace ──────────
+# This is the foundation of the least-privilege model. Every other policy
+# below carves out specific allowed paths on top of this blanket deny.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all
+  namespace: default
+spec:
+  podSelector: {}      # applies to every pod in the default namespace
+  policyTypes:
+    - Ingress
+    - Egress
+
+# ── 2. Allow Ingress Controller → php-app (TCP 80) ───────────────────────
+# The NGINX Ingress Controller (running in ingress-nginx namespace) must be
+# able to forward HTTP traffic to the PHP application pods.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-php
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: php-app
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # Allow from the ingress-nginx namespace (NGINX Ingress Controller)
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+        # Also allow from any pod labelled as an ingress controller
+        # (covers alternative controller namespaces)
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 80
+
+# ── 3. Allow php-app → mysql (TCP 3306) ──────────────────────────────────
+# Only the PHP application pods may open connections to the MySQL database.
+# All other pods (including monitoring, other namespaces, internet) are blocked.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-php-to-mysql
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: mysql          # policy applies TO the MySQL pod
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: php-app   # only traffic FROM php-app pods is permitted
+      ports:
+        - protocol: TCP
+          port: 3306
+
+# ── 4. Allow php-app egress → mysql (TCP 3306) ────────────────────────────
+# The default-deny-all policy blocks all egress. This rule allows PHP pods
+# to initiate outbound connections to MySQL on port 3306.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-php-egress-to-mysql
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: php-app
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mysql
+      ports:
+        - protocol: TCP
+          port: 3306
+    # Allow DNS resolution (kube-dns) so hostnames like "mysql" resolve
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+# ── 5. Allow Prometheus (monitoring ns) → php-app (TCP 80) ───────────────
+# Prometheus scrapes the PHP Apache server-status endpoint for HTTP metrics.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-monitoring-scrape-php
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: php-app
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+          podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 80
+
+# ── 6. Allow Prometheus (monitoring ns) → mysql-exporter (TCP 9104) ───────
+# If a MySQL exporter sidecar/pod is deployed, Prometheus must be able to
+# scrape it. MySQL itself (3306) is never directly reachable from monitoring.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-monitoring-scrape-mysql-exporter
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: mysql-exporter
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+          podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 9104
+
+# ── 7. Default-deny ALL in the monitoring namespace ───────────────────────
+# Isolate monitoring tools from each other and from external traffic.
+# Individual allow rules below open only what is required.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all-monitoring
+  namespace: monitoring
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+
+# ── 8. Allow Grafana → Prometheus and Loki (within monitoring ns) ─────────
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-grafana-to-datasources
+  namespace: monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app: grafana
+  policyTypes:
+    - Egress
+  egress:
+    # Grafana → Prometheus
+    - to:
+        - podSelector:
+            matchLabels:
+              app: prometheus
+      ports:
+        - protocol: TCP
+          port: 9090
+    # Grafana → Loki
+    - to:
+        - podSelector:
+            matchLabels:
+              app: loki
+      ports:
+        - protocol: TCP
+          port: 3100
+    # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+
+# ── 9. Allow Prometheus egress → default namespace for scraping ───────────
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-egress-scrape
+  namespace: monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app: prometheus
+  policyTypes:
+    - Egress
+  egress:
+    # Scrape targets in default namespace
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: default
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 9104
+    # K8s API server (for service discovery)
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: default
+      ports:
+        - protocol: TCP
+          port: 443
+    # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+
+# ── 10. Allow Promtail egress → Loki ─────────────────────────────────────
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-promtail-to-loki
+  namespace: monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app: promtail
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: loki
+      ports:
+        - protocol: TCP
+          port: 3100
+    # DNS
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+
+# ── 11. Allow NodePort access to Grafana and Prometheus from outside ──────
+# Users and the demo tutor access Grafana (30300) and Prometheus (30090)
+# via the node's IP. We allow ingress on those container ports from anywhere.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-to-grafana
+  namespace: monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app: grafana
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 3000
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-external-to-prometheus
+  namespace: monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app: prometheus
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - protocol: TCP
+          port: 9090
+
+# ── 12. Allow Loki ingress from Promtail ─────────────────────────────────
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-promtail-ingress-to-loki
+  namespace: monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app: loki
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: promtail
+      ports:
+        - protocol: TCP
+          port: 3100
+    - from:
+        - podSelector:
+            matchLabels:
+              app: grafana
+      ports:
+        - protocol: TCP
+          port: 3100
