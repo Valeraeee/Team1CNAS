@@ -1,0 +1,10 @@
+# Dedicated namespace for all monitoring components.
+# Isolating monitoring from the default namespace makes it easier to
+# apply RBAC, resource quotas, and network policies scoped only to
+# observability tooling.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: monitoring
+  labels:
+    name: monitoring
