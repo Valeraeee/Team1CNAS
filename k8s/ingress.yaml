@@ -1,0 +1,57 @@
+# =============================================================================
+# NGINX Ingress – Reuben
+# Routes external HTTPS traffic to the PHP app Service.
+# Cert-Manager automatically provisions and renews the TLS certificate via
+# the letsencrypt-prod ClusterIssuer defined in issuer.yaml.
+#
+# Prerequisites (install once per cluster):
+#   kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.10.1/deploy/static/provider/cloud/deploy.yaml
+#   kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.14.5/cert-manager.yaml
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-ingress
+  namespace: default
+  annotations:
+    # Use the NGINX ingress controller
+    kubernetes.io/ingress.class: "nginx"
+
+    # Tell Cert-Manager which ClusterIssuer to use for TLS
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+
+    # Force all HTTP traffic to redirect to HTTPS (301)
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+    # Security headers – applied by NGINX before response reaches the client
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains";
+
+    # Rate limiting – protect against basic DDoS / brute force
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+
+spec:
+  ingressClassName: nginx
+
+  # TLS – Cert-Manager will create and populate this Secret automatically
+  tls:
+    - hosts:
+        - app.cnas.local        # replace with your real domain in production
+      secretName: app-cnas-tls  # Cert-Manager writes the cert/key here
+
+  rules:
+    - host: app.cnas.local      # replace with your real domain in production
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: php-app-service   # matches php-service.yaml
+                port:
+                  number: 80

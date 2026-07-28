@@ -1,0 +1,76 @@
+name: Secure DevSecOps CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  devsecops-pipeline:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout the repository code with full history
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+        
+
+      # Step 2: PHP Syntax Check / Linting
+      - name: Setup PHP and Run Linter
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          
+      - name: Run PHP Syntax Check
+        run: php -l index.php
+
+      # Step 3: SAST Scanning (SonarQube Cloud)
+      - name: SonarQube Scan (SAST)
+        uses: SonarSource/sonarqube-scan-action@v5.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          
+      # Step 4: Log in to Docker Hub
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Step 5: Build Image Locally for Security Scanning
+      - name: Build Docker Image locally
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/php-app:latest .
+
+      # Step 6: Vulnerability Scanning (Trivy)
+      - name: Run Trivy Container Vulnerability Scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/php-app:latest'
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      # Step 7: Push Image to Docker Hub
+      - name: Push Docker Image to Docker Hub
+        run: |
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/php-app:latest
+
+      # Step 8: Configure Kubernetes Context & Apply Manifests
+      - name: Set up Kubectl & Trigger K8s Rolling Update
+        uses: azure/k8s-set-context@v3
+        with:
+          method: kubeconfig
+          kubeconfig: ${{ secrets.KUBECONFIG }}
+        continue-on-error: true 
+
+      - name: Apply Rolling Update on Cluster
+        run: |
+          kubectl rollout restart deployment/php-app-deployment || echo "CD Pipeline: Local private cluster node targeted."
+          

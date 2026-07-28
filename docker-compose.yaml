@@ -1,0 +1,29 @@
+services:
+  mysql:
+    build: ./mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: mydb
+    networks:
+      - UwU
+
+  php-webapp:
+    build: ./php-webapp
+    ports:
+      - "8080:80"
+    environment:
+      DB_HOST: mysql
+      DB_USER: root
+      DB_PASSWORD: rootpass
+      DB_NAME: mydb
+      DB_PORT: 3306
+    depends_on:
+      - mysql
+    networks:
+      - UwU
+
+networks:
+  UwU:
+    driver: bridge

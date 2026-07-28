@@ -1,0 +1,22 @@
+# =============================================================================
+# PHP App Service – Reuben
+# ClusterIP Service that exposes the PHP Deployment internally.
+# The NGINX Ingress controller routes external traffic to this Service.
+# Named "php-app-service" to match the backend reference in ingress.yaml.
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: php-app-service
+  namespace: default
+  labels:
+    app: php-app
+spec:
+  type: ClusterIP       # internal only – Ingress handles external exposure
+  selector:
+    app: php-app        # matches pod labels in deployment.yaml
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 80

@@ -1,0 +1,49 @@
+# =============================================================================
+# Cert-Manager ClusterIssuers – Reuben
+# Two issuers are defined:
+#   1. letsencrypt-staging  – use this first to test without hitting rate limits
+#   2. letsencrypt-prod     – use this for real certificates (referenced by Ingress)
+#
+# Replace the email address below with a real address to receive expiry alerts.
+#
+# How it works:
+#   Cert-Manager sees the cert-manager.io/cluster-issuer annotation on the Ingress,
+#   creates a Certificate resource, solves the HTTP-01 ACME challenge through the
+#   NGINX Ingress controller, then stores the signed cert in the TLS Secret.
+#   Renewal is automatic (triggered ~30 days before expiry).
+# =============================================================================
+
+# ----- Staging Issuer (safe for testing) -----
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    # Let's Encrypt staging endpoint – issues untrusted certs but no rate limits
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: team1cnas@example.com   # replace with a real email address
+    privateKeySecretRef:
+      name: letsencrypt-staging-key
+    solvers:
+      - http01:
+          ingress:
+            class: nginx            # must match ingressClassName in ingress.yaml
+
+---
+# ----- Production Issuer (real trusted certificates) -----
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    # Let's Encrypt production endpoint – issues publicly trusted certs
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: team1cnas@example.com   # replace with a real email address
+    privateKeySecretRef:
+      name: letsencrypt-prod-key
+    solvers:
+      - http01:
+          ingress:
+            class: nginx            # must match ingressClassName in ingress.yaml

@@ -1,0 +1,167 @@
+# =============================================================================
+# MySQL StatefulSet – John (SIGMA)
+# Uses a StatefulSet (not Deployment) because MySQL is stateful:
+#   - Stable network identity (mysql-0, mysql-1...)
+#   - Ordered, graceful startup and shutdown
+#   - PersistentVolumeClaim per pod so data survives pod restarts/rescheduling
+# =============================================================================
+
+# ----- StorageClass -----
+# Defines how PVCs are dynamically provisioned.
+# Uses the cluster's default provisioner (works on EKS gp2, GKE standard, etc.)
+# Change provisioner to match your cloud provider if needed.
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: mysql-storage
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "false"
+provisioner: kubernetes.io/no-provisioner   # replace with ebs.csi.aws.com (EKS) or pd.csi.storage.gke.io (GKE)
+volumeBindingMode: WaitForFirstConsumer     # delay binding until a pod is scheduled
+reclaimPolicy: Retain                       # keep PV data even after PVC is deleted
+
+---
+# ----- Headless Service -----
+# Required by StatefulSet for stable DNS entries per pod:
+#   mysql-0.mysql.default.svc.cluster.local
+# Also used by the PHP app as DB_HOST="mysql" (resolves to the headless service)
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql
+  namespace: default
+  labels:
+    app: mysql
+spec:
+  clusterIP: None       # headless — no load balancing, DNS per pod
+  selector:
+    app: mysql
+  ports:
+    - name: mysql
+      port: 3306
+      targetPort: 3306
+
+---
+# ----- StatefulSet -----
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: mysql
+  namespace: default
+  labels:
+    app: mysql
+spec:
+  serviceName: mysql      # must match the headless Service above
+  replicas: 1             # single primary; scale to 3 with MySQL replication if needed
+
+  selector:
+    matchLabels:
+      app: mysql
+
+  template:
+    metadata:
+      labels:
+        app: mysql
+
+    spec:
+      terminationGracePeriodSeconds: 60   # give MySQL time to flush and close connections
+
+      containers:
+        - name: mysql
+          image: mysql:8.0.36             # pinned – matches mysql/Dockerfile base image
+
+          ports:
+            - containerPort: 3306
+              name: mysql
+
+          # Pull credentials from the shared Secret (mysql-secret.yaml)
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: MYSQL_ROOT_PASSWORD
+            - name: MYSQL_DATABASE
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: DB_NAME
+
+          # Resource Requests & Limits – sized for a small dev/demo cluster
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
+
+          # Mount the persistent volume at MySQL's data directory
+          volumeMounts:
+            - name: mysql-data
+              mountPath: /var/lib/mysql
+
+          # Startup Probe – MySQL can be slow to initialise on first boot
+          startupProbe:
+            exec:
+              command:
+                - mysqladmin
+                - ping
+                - -h
+                - "127.0.0.1"
+                - -u
+                - root
+                - --password=$(MYSQL_ROOT_PASSWORD)
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30          # 30 × 10s = 5 min max startup window
+
+          # Liveness Probe – restart if MySQL stops responding
+          livenessProbe:
+            exec:
+              command:
+                - mysqladmin
+                - ping
+                - -h
+                - "127.0.0.1"
+                - -u
+                - root
+                - --password=$(MYSQL_ROOT_PASSWORD)
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Readiness Probe – only send traffic once MySQL can accept queries
+          readinessProbe:
+            exec:
+              command:
+                - mysql
+                - -h
+                - "127.0.0.1"
+                - -u
+                - root
+                - --password=$(MYSQL_ROOT_PASSWORD)
+                - -e
+                - "SELECT 1"
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
+
+  # ----- VolumeClaimTemplates -----
+  # StatefulSet creates one PVC per pod automatically.
+  # Pod mysql-0 gets PVC mysql-data-mysql-0, mysql-1 gets mysql-data-mysql-1, etc.
+  # Data persists across pod restarts and rescheduling.
+  volumeClaimTemplates:
+    - metadata:
+        name: mysql-data
+      spec:
+        accessModes:
+          - ReadWriteOnce     # single node read/write (standard for block storage)
+        storageClassName: mysql-storage
+        resources:
+          requests:
+            storage: 5Gi

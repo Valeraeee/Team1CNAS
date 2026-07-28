@@ -1,0 +1,139 @@
+# =============================================================================
+# Kubernetes Network Policies – Jun Wei (ALPHA)
+# Implements least-privilege network model:
+#   - MySQL pods accept traffic ONLY from PHP app pods (port 3306)
+#   - MySQL pods cannot initiate outbound connections to other pods
+#   - PHP pods can receive traffic from the Ingress controller only
+#   - All other pod-to-pod traffic is denied by default
+#
+# NOTE: NetworkPolicies require a CNI plugin that enforces them
+#       (e.g. Calico, Cilium, Weave). Flannel does NOT enforce them.
+# =============================================================================
+
+# ----- Default deny all ingress in the default namespace -----
+# Blocks all incoming traffic to every pod unless explicitly allowed below.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: default
+spec:
+  podSelector: {}       # applies to ALL pods in the namespace
+  policyTypes:
+    - Ingress
+
+---
+# ----- Default deny all egress in the default namespace -----
+# Blocks all outgoing traffic from every pod unless explicitly allowed below.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: default
+spec:
+  podSelector: {}       # applies to ALL pods in the namespace
+  policyTypes:
+    - Egress
+
+---
+# ----- Allow PHP pods to receive traffic from the NGINX Ingress controller -----
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-ingress-to-php
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: php-app      # targets PHP pods (matches deployment.yaml labels)
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        # Allow traffic from any pod in the ingress-nginx namespace
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 80
+
+---
+# ----- Allow PHP pods to connect OUT to MySQL (port 3306) -----
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-php-egress-to-mysql
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: php-app      # only PHP pods get this egress rule
+  policyTypes:
+    - Egress
+  egress:
+    # Allow PHP → MySQL on port 3306
+    - to:
+        - podSelector:
+            matchLabels:
+              app: mysql
+      ports:
+        - protocol: TCP
+          port: 3306
+    # Allow DNS resolution (required for hostname lookups like "mysql")
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+---
+# ----- Allow MySQL to receive traffic ONLY from PHP pods -----
+# This is the core security rule – MySQL is completely isolated from
+# everything except the PHP application pods.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-php-to-mysql
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: mysql        # targets MySQL pods (matches statefulset labels)
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: php-app    # ONLY PHP pods can reach MySQL
+      ports:
+        - protocol: TCP
+          port: 3306
+
+---
+# ----- Allow Prometheus to scrape metrics from PHP pods -----
+# Opens port 80 on PHP pods for Prometheus scraping from the monitoring namespace
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape-php
+  namespace: default
+spec:
+  podSelector:
+    matchLabels:
+      app: php-app
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 80
