@@ -2,30 +2,30 @@
 # ClusterRole grants Prometheus read access to pods, services, endpoints,
 # and nodes across all namespaces so it can auto-discover scrape targets.
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+kind: ClusterRole # defines permission for cluster
 metadata:
-  name: prometheus
+  name: prometheus-permission
 rules:
-  - apiGroups: [""]
+  - apiGroups: [""] #Core API Group - fundamental Kurbenetes resources
     resources:
       - nodes
-      - nodes/proxy
-      - services
-      - endpoints
-      - pods
-    verbs: ["get", "list", "watch"]
+      - nodes/proxy # allows Prometheus to reach the node metrics through Kubernetes.
+      - services # knows where apps are running
+      - endpoints # knows which pod belongs to which service
+      - pods # discover newly created pod
+    verbs: ["get", "list", "watch"] # allow above resources to read show and monitor
   - apiGroups: ["extensions", "networking.k8s.io"]
     resources:
-      - ingresses
+      - ingresses #central entry point for monitoring resources
     verbs: ["get", "list", "watch"]
-  - nonResourceURLs: ["/metrics"]
+  - nonResourceURLs: ["/metrics"] # endpoint exposed by kubelet on each kurbenetes node
     verbs: ["get"]
 
 ---
 apiVersion: v1
-kind: ServiceAccount
+kind: ServiceAccount # defines who will use permission
 metadata:
-  name: prometheus
+  name: prometheus-pod
   namespace: monitoring
 
 ---
@@ -33,13 +33,14 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: prometheus
-roleRef:
+roleRef: # Tells Kurbenetes whihc role should be assigned
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: prometheus
-subjects:
+  name: prometheus-permission
+
+subjects: # who receieves permission
   - kind: ServiceAccount
-    name: prometheus
+    name: prometheus-pod
     namespace: monitoring
 
 ---
@@ -50,43 +51,52 @@ subjects:
 #   - php-app                 : our PHP CRUD application pods
 #   - mysql-exporter          : MySQL performance metrics (if deployed)
 apiVersion: v1
-kind: ConfigMap
+kind: ConfigMap # Stores non-sensitive config of file settings different form application
 metadata:
   name: prometheus-config
   namespace: monitoring
 data:
-  prometheus.yml: |
-    global:
+  prometheus.yml: | #Creates file inside ConfigMap
+    global: #global settings used by prometheus
       scrape_interval:     15s   # Pull metrics every 15 seconds
-      evaluation_interval: 15s   # Evaluate alert rules every 15 seconds
+      evaluation_interval: 15s   # check alert rules every 15 seconds
 
-    scrape_configs:
+    scrape_configs: # telling Prometheus what to monitor
 
       # ── Node metrics via kubelet ──────────────────────────────────────────
-      - job_name: 'kubernetes-nodes'
-        scheme: https
-        tls_config:
+      - job_name: 'kubernetes-nodes' #monitor every kubernetes worker node
+        scheme: https #prometheus communicates with kurbenetes API server over https so its transmitted securely
+
+        tls_config: #Certificate to establish encrypted connection to kurbenetes API server
           ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-          insecure_skip_verify: true
+          insecure_skip_verify: false
+
+        #Authentication token for ServiceAccount for API server to discover/ retrieve metrics
         bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
-        kubernetes_sd_configs:
+        
+        kubernetes_sd_configs: # Ask Kurbenetes to show all code in cluster for discovery
           - role: node
+        
+        # How to prepare information for Grafana
         relabel_configs:
           - action: labelmap
             regex: __meta_kubernetes_node_label_(.+)
           - target_label: __address__
             replacement: kubernetes.default.svc:443
+
+            #node name inside cluster
           - source_labels: [__meta_kubernetes_node_name]
             regex: (.+)
             target_label: __metrics_path__
+            # ${1} is the node name cluster. Tells Prometheus exactly where to retrieve node metrics
             replacement: /api/v1/nodes/${1}/proxy/metrics
 
-      # ── cAdvisor container resource metrics ───────────────────────────────
+      # ── cAdvisor (collect container level metrics) ───────────────────────────────
       - job_name: 'kubernetes-cadvisor'
         scheme: https
         tls_config:
           ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-          insecure_skip_verify: true
+          insecure_skip_verify: false
         bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
         kubernetes_sd_configs:
           - role: node
@@ -103,38 +113,50 @@ data:
       # ── Auto-discover all pods that expose a /metrics endpoint ───────────
       # Pods must carry annotation: prometheus.io/scrape: "true"
       - job_name: 'kubernetes-pods'
+
         kubernetes_sd_configs:
-          - role: pod
+          - role: pod # Shows all Pods currently running in Kubernetes
+
         relabel_configs:
+          #Checks if Pod has annotation
           - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
             action: keep
             regex: true
+
+          # Metric doesnt always expose same URL
           - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
             action: replace
             target_label: __metrics_path__
             regex: (.+)
+
+          # Different application expose metrics on different ports
           - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
             action: replace
             regex: ([^:]+)(?::\d+)?;(\d+)
             replacement: $1:$2
             target_label: __address__
+
+          # Copies lebels into Prometheus so Grafana can filter
           - action: labelmap
             regex: __meta_kubernetes_pod_label_(.+)
+
           - source_labels: [__meta_kubernetes_namespace]
             action: replace
             target_label: kubernetes_namespace
+
           - source_labels: [__meta_kubernetes_pod_name]
             action: replace
             target_label: kubernetes_pod_name
 
       # ── PHP application – Apache status endpoint ──────────────────────────
       # Requires mod_status enabled in the php-webapp Dockerfile.
+      # Shows: active/total requests, idle/busy workers, server uptime
       - job_name: 'php-app'
-        static_configs:
+        static_configs: #Set fixed taraget instead of automatically discovering
           - targets: ['php-app-service.default.svc.cluster.local:80']
-        metrics_path: /server-status
+        metrics_path: /server-status #Apache exposes performance
         params:
-          auto: ['']
+          auto: [''] # Generates a plain text so Prometheus can easily read
 
       # ── MySQL exporter (optional, deploy alongside MySQL) ─────────────────
       # Exposes MySQL internals: connections, queries/s, InnoDB stats, etc.
@@ -142,18 +164,21 @@ data:
         static_configs:
           - targets: ['mysql-exporter.default.svc.cluster.local:9104']
 
-      # ── Kubernetes API server ─────────────────────────────────────────────
+      # ── Kubernetes API server (Discovers endpoint) ─────────────────────────────────────────────
       - job_name: 'kubernetes-apiservers'
         kubernetes_sd_configs:
           - role: endpoints
         scheme: https
         tls_config:
           ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        #authenticate using ServiceAccount token
         bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
         relabel_configs:
           - source_labels:
               [__meta_kubernetes_namespace, __meta_kubernetes_service_name,
                __meta_kubernetes_endpoint_port_name]
+              # Namespace, Service name, Endpoint port
+
             action: keep
             regex: default;kubernetes;https
 
@@ -167,7 +192,7 @@ metadata:
   namespace: monitoring
 spec:
   accessModes:
-    - ReadWriteOnce
+    - ReadWriteOnce # One node can mount the storage with read and write access.
   resources:
     requests:
       storage: 8Gi
@@ -181,7 +206,7 @@ metadata:
   labels:
     app: prometheus
 spec:
-  replicas: 1
+  replicas: 1 # Runs one Prometheus instance
   selector:
     matchLabels:
       app: prometheus
@@ -190,19 +215,19 @@ spec:
       labels:
         app: prometheus
     spec:
-      serviceAccountName: prometheus
+      serviceAccountName: prometheus-pod
 
       # Run as non-root for security hardening
       securityContext:
-        runAsNonRoot: true
+        runAsNonRoot: true # best security practice
         runAsUser: 65534   # nobody
         fsGroup: 65534
 
       containers:
         - name: prometheus
-          image: prom/prometheus:v2.52.0
+          image: prom/prometheus:v2.52.0 # Specify which Prometheus image to run
           args:
-            - "--config.file=/etc/prometheus/prometheus.yml"
+            - "--config.file=/etc/prometheus/prometheus.yml" # Loads prometheus config from ConfigMap
             - "--storage.tsdb.path=/prometheus"
             # Retain 15 days of metrics
             - "--storage.tsdb.retention.time=15d"
@@ -210,6 +235,7 @@ spec:
           ports:
             - containerPort: 9090
               name: web
+          # Reserve resources and prevent Prometheus from using excessive CPU or memory
           resources:
             requests:
               cpu: "200m"
@@ -222,6 +248,8 @@ spec:
               mountPath: /etc/prometheus
             - name: prometheus-storage
               mountPath: /prometheus
+
+          # Checks if prometheus is health and ready before sendinf traffic
           livenessProbe:
             httpGet:
               path: /-/healthy
@@ -240,6 +268,7 @@ spec:
           configMap:
             name: prometheus-config
         - name: prometheus-storage
+        # Connect ConfigMap and  Persistent Volume Claim (metric storage) into a container
           persistentVolumeClaim:
             claimName: prometheus-pvc
 
