@@ -72,5 +72,6 @@ jobs:
 
       - name: Apply Rolling Update on Cluster
         run: |
+          kubectl apply -f k8s/
           kubectl rollout restart deployment/php-app-deployment || echo "CD Pipeline: Local private cluster node targeted."
           
