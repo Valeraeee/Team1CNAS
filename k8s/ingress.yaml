@@ -1,25 +1,26 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: app-ingress
+  name: cnas-app-ingress
   namespace: default
   annotations:
-    cert-manager.io/cluster-issuer: "selfsigned-issuer"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
     nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
   ingressClassName: nginx
   tls:
-  - hosts:
-    - app.cnas.local
-    secretName: app-cnas-tls
+    - hosts:
+        - app.136.85.97.74.nip.io
+      secretName: cnas-app-tls
   rules:
-  - host: app.cnas.local
-    http:
-      paths:
-      - path: /
-        pathType: Prefix
-        backend:
-          service:
-            name: php-app-service
-            port:
-              number: 80
+    - host: app.136.85.97.74.nip.io
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: php-app
+                port:
+                  number: 80
+

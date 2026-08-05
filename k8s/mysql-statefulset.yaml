@@ -15,8 +15,8 @@ spec:
     spec:
       containers:
       - name: mysql
-        image: sql-db:latest # REPLACE THIS WITH DOCKER HUB REPO. ENSURE IT HAS SQL-DB IMAGE INSIDE
-        imagePullPolicy: Never
+        image: robbinyew/sql-db:latest # REPLACE THIS WITH DOCKER HUB REPO. ENSURE IT HAS SQL-DB IMAGE INSIDE
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3306
         env:

@@ -74,7 +74,7 @@ metadata:
 spec:
   podSelector:
     matchLabels:
-      app: mysql          # policy applies TO the MySQL pod
+      app: sql-db          # policy applies TO the MySQL pod
   policyTypes:
     - Ingress
   ingress:
@@ -105,7 +105,7 @@ spec:
     - to:
         - podSelector:
             matchLabels:
-              app: mysql
+              app: sql-db
       ports:
         - protocol: TCP
           port: 3306
