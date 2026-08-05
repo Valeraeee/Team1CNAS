@@ -48,7 +48,7 @@ subjects: # who receieves permission
 # Each job maps to a component we want to monitor:
 #   - kubernetes-nodes        : node CPU, memory, disk metrics via kubelet
 #   - kubernetes-pods         : auto-discovers pods that expose /metrics
-#   - php-app                 : our PHP CRUD application pods
+#   - php-app                 : Apache metrics converted by apache-exporter
 #   - mysql-exporter          : MySQL performance metrics (if deployed)
 apiVersion: v1
 kind: ConfigMap # Stores non-sensitive config of file settings different form application
@@ -95,7 +95,7 @@ data:
       - job_name: 'kubernetes-cadvisor'
         scheme: https
         tls_config:
-          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crta
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
           insecure_skip_verify: false
         bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
         kubernetes_sd_configs:
@@ -153,8 +153,7 @@ data:
       # Shows: active/total requests, idle/busy workers, server uptime
       - job_name: 'php-app'
         static_configs:
-          - targets: ['php-app-service.default.svc:80']
-        metrics_path: /server-status?auto #Apache exposes performance
+          - targets: ['127.0.0.1:9117']
         
       # ── Kubernetes API server (Discovers endpoint) ─────────────────────────────────────────────
       - job_name: 'kubernetes-apiservers'
@@ -253,6 +252,35 @@ spec:
               path: /-/ready
               port: 9090
             initialDelaySeconds: 10
+            periodSeconds: 10
+
+        # Apache's mod_status endpoint is not Prometheus formatted. This
+        # sidecar converts it and exposes compatible metrics on port 9117.
+        - name: apache-exporter
+          image: lusitaniae/apache-exporter:v1.0.9
+          args:
+            - '--scrape_uri=http://php-app.default.svc.cluster.local/server-status?auto'
+          ports:
+            - name: apache-metrics
+              containerPort: 9117
+          resources:
+            requests:
+              cpu: "25m"
+              memory: "32Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 9117
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 9117
+            initialDelaySeconds: 5
             periodSeconds: 10
 
       volumes:
