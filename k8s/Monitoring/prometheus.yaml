@@ -198,6 +198,10 @@ metadata:
     app: prometheus
 spec:
   replicas: 1 # Runs one Prometheus instance
+  # The TSDB uses a ReadWriteOnce persistent disk. Stop the old pod before
+  # starting its replacement so two nodes never attempt to attach it at once.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: prometheus
@@ -257,7 +261,7 @@ spec:
         # Apache's mod_status endpoint is not Prometheus formatted. This
         # sidecar converts it and exposes compatible metrics on port 9117.
         - name: apache-exporter
-          image: lusitaniae/apache-exporter:v1.0.9
+          image: lusotycoon/apache-exporter:v1.1.1
           args:
             - '--scrape_uri=http://php-app.default.svc.cluster.local/server-status?auto'
           ports:
