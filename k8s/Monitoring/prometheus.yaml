@@ -95,7 +95,7 @@ data:
       - job_name: 'kubernetes-cadvisor'
         scheme: https
         tls_config:
-          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crta
           insecure_skip_verify: false
         bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
         kubernetes_sd_configs:
@@ -152,18 +152,10 @@ data:
       # Requires mod_status enabled in the php-webapp Dockerfile.
       # Shows: active/total requests, idle/busy workers, server uptime
       - job_name: 'php-app'
-        static_configs: #Set fixed taraget instead of automatically discovering
-          - targets: ['php-app-service.default.svc.cluster.local:80']
-        metrics_path: /server-status #Apache exposes performance
-        params:
-          auto: [''] # Generates a plain text so Prometheus can easily read
-
-      # ── MySQL exporter (optional, deploy alongside MySQL) ─────────────────
-      # Exposes MySQL internals: connections, queries/s, InnoDB stats, etc.
-      - job_name: 'mysql-exporter'
         static_configs:
-          - targets: ['mysql-exporter.default.svc.cluster.local:9104']
-
+          - targets: ['php-app-service.default.svc:80']
+        metrics_path: /server-status?auto #Apache exposes performance
+        
       # ── Kubernetes API server (Discovers endpoint) ─────────────────────────────────────────────
       - job_name: 'kubernetes-apiservers'
         kubernetes_sd_configs:
