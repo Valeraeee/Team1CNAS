@@ -33,8 +33,8 @@ spec:
     spec:
       containers:
         - name: php
-          image: php:8.2-apache
-          imagePullPolicy: IfNotPresent
+          image: robbinyew/php-app:latest
+          imagePullPolicy: Always
 
           ports:
             - containerPort: 80
