@@ -93,10 +93,19 @@ jobs:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
       # Step 9: Deploy Manifests & Trigger Kubernetes Rolling Update
-      - name: Apply Kubernetes manifests
-        run: kubectl apply -f k8s/ --recursive
+      - name: Apply Kubernetes namespaces first
+        run: |
+          kubectl apply -f k8s/Monitoring/namespace.yaml || true
+
+      - name: Apply all Kubernetes manifests
+        run: |
+          kubectl apply -f k8s/ --recursive
 
       - name: Force rollout to pick up freshly pushed images
         run: |
+          # Restart PHP App
           kubectl rollout restart deployment/php-app-deployment || kubectl rollout restart deployment/php-app
           kubectl rollout status deployment/php-app-deployment --timeout=180s || kubectl rollout status deployment/php-app --timeout=180s
+          
+          # Restart MySQL StatefulSet (if updated)
+          kubectl rollout restart statefulset/mysql || true
