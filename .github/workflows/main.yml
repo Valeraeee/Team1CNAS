@@ -44,24 +44,39 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Step 5: Build Container Image
-      - name: Build Docker Image
+      # Step 5: Build Container Images
+      - name: Build PHP App Docker Image
         run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/php-app:latest ./php-webapp
 
+      - name: Build MySQL Docker Image
+        run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/mysql-db:latest ./mysql
+
       # Step 6: Vulnerability & Secret Scanning (Trivy)
-      - name: Run Trivy Container Vulnerability Scanner
+      - name: Run Trivy Scanner on PHP App
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/php-app:latest'
           format: 'table'
-          exit-code: '0' # Audit mode for testing; switch to '1' for active security gate
+          exit-code: '0'
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
 
-      # Step 7: Push Image to Registry
-      - name: Push Docker Image to Docker Hub
-        run: docker push ${{ secrets.DOCKERHUB_USERNAME }}/php-app:latest
+      - name: Run Trivy Scanner on MySQL DB
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/mysql-db:latest'
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+
+      # Step 7: Push Images to Registry
+      - name: Push Container Images to Docker Hub
+        run: |
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/php-app:latest
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/mysql-db:latest
 
       # Step 8: Cloud Authentication & GKE Credentials Setup
       - name: Authenticate to Google Cloud
@@ -81,7 +96,7 @@ jobs:
       - name: Apply Kubernetes manifests
         run: kubectl apply -f k8s/ --recursive
 
-      - name: Force rollout to pick up freshly pushed image
+      - name: Force rollout to pick up freshly pushed images
         run: |
           kubectl rollout restart deployment/php-app-deployment || kubectl rollout restart deployment/php-app
           kubectl rollout status deployment/php-app-deployment --timeout=180s || kubectl rollout status deployment/php-app --timeout=180s
