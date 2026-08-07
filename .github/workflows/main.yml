@@ -15,20 +15,20 @@ jobs:
       id-token: write
 
     steps:
-      # Step 1: Checkout Repository
+      # Step 1: Checkout Entire Repository
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # Step 2: Setup PHP & Code Linting
+      # Step 2: Setup PHP & Recursive Linter
       - name: Setup PHP and Run Linter
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.1'
 
-      - name: Run PHP Syntax Check
-        run: find php-webapp -name "*.php" -print0 | xargs -0 -n1 php -l
+      - name: Run PHP Syntax Check Across All Subdirectories
+        run: find . -type f -name "*.php" -exec php -l {} +
 
       # Step 3: SAST Code Analysis (SonarQube)
       - name: SonarQube Scan (SAST)
@@ -44,39 +44,40 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Step 5: Build Container Images
-      - name: Build PHP App Docker Image
-        run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/php-app:latest ./php-webapp
-
-      - name: Build MySQL Docker Image
-        run: docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/mysql-db:latest ./mysql
+      # Step 5: Automatically Find and Build All Dockerfiles
+      - name: Build All Docker Images Recursively
+        run: |
+          find . -mindepth 2 -type f -name "Dockerfile" | while read -r dockerfile; do
+            dir=$(dirname "$dockerfile" | sed 's|^\./||')
+            image_name=$(echo "$dir" | tr '/' '-')
+            echo "Building image for directory: $dir as $image_name"
+            docker build -t "${{ secrets.DOCKERHUB_USERNAME }}/${image_name}:latest" -f "$dockerfile" "$dir"
+          done
 
       # Step 6: Vulnerability & Secret Scanning (Trivy)
-      - name: Run Trivy Scanner on PHP App
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/php-app:latest'
-          format: 'table'
-          exit-code: '0'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
-
-      - name: Run Trivy Scanner on MySQL DB
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: '${{ secrets.DOCKERHUB_USERNAME }}/mysql-db:latest'
-          format: 'table'
-          exit-code: '0'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
-
-      # Step 7: Push Images to Registry
-      - name: Push Container Images to Docker Hub
+      - name: Scan Built Images with Trivy
         run: |
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/php-app:latest
-          docker push ${{ secrets.DOCKERHUB_USERNAME }}/mysql-db:latest
+          find . -mindepth 2 -type f -name "Dockerfile" | while read -r dockerfile; do
+            dir=$(dirname "$dockerfile" | sed 's|^\./||')
+            image_name=$(echo "$dir" | tr '/' '-')
+            echo "Scanning image: ${image_name}"
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+              aquasec/trivy:latest image \
+              --format table \
+              --exit-code 0 \
+              --severity CRITICAL,HIGH \
+              "${{ secrets.DOCKERHUB_USERNAME }}/${image_name}:latest"
+          done
+
+      # Step 7: Push All Built Images to Registry
+      - name: Push All Docker Images to Docker Hub
+        run: |
+          find . -mindepth 2 -type f -name "Dockerfile" | while read -r dockerfile; do
+            dir=$(dirname "$dockerfile" | sed 's|^\./||')
+            image_name=$(echo "$dir" | tr '/' '-')
+            echo "Pushing image: ${image_name}"
+            docker push "${{ secrets.DOCKERHUB_USERNAME }}/${image_name}:latest"
+          done
 
       # Step 8: Cloud Authentication & GKE Credentials Setup
       - name: Authenticate to Google Cloud
@@ -92,20 +93,15 @@ jobs:
           location: ${{ secrets.GKE_ZONE }}
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
-      # Step 9: Deploy Manifests & Trigger Kubernetes Rolling Update
-      - name: Apply Kubernetes namespaces first
+      # Step 9: Deploy All Manifests & Trigger Rolling Update
+      - name: Apply Namespaces First
         run: |
-          kubectl apply -f k8s/Monitoring/namespace.yaml || true
+          find k8s/ -type f -name "*namespace*.yaml" -exec kubectl apply -f {} \; || true
 
-      - name: Apply all Kubernetes manifests
-        run: |
-          kubectl apply -f k8s/ --recursive
+      - name: Apply All Kubernetes Manifests Recursively
+        run: kubectl apply -f k8s/ --recursive
 
-      - name: Force rollout to pick up freshly pushed images
+      - name: Force Rollout Restarts
         run: |
-          # Restart PHP App
-          kubectl rollout restart deployment/php-app-deployment || kubectl rollout restart deployment/php-app
-          kubectl rollout status deployment/php-app-deployment --timeout=180s || kubectl rollout status deployment/php-app --timeout=180s
-          
-          # Restart MySQL StatefulSet (if updated)
-          kubectl rollout restart statefulset/mysql || true
+          kubectl rollout restart deployment --all || true
+          kubectl rollout restart statefulset --all || true
