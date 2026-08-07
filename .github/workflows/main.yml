@@ -22,14 +22,21 @@ jobs:
           fetch-depth: 0
 
       # Step 2: Setup PHP & Recursive Linter
-      - name: Setup PHP and Run Linter
+      - name: Setup PHP & Xdebug
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.1'
+          coverage: xdebug # Enables code coverage generation
 
-      - name: Run PHP Syntax Check Across All Subdirectories
+      - name: PHP Linting Check
         run: find . -type f -name "*.php" -exec php -l {} +
 
+      - name: Install Dependencies & Run PHPUnit
+        run: |
+          cd php-webapp
+          composer install
+          ./vendor/bin/phpunit --coverage-clover coverage.xml
+        
       # Step 3: SAST Code Analysis (SonarQube)
       - name: SonarQube Scan (SAST)
         uses: sonarsource/sonarqube-scan-action@v5
