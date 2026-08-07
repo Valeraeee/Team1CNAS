@@ -15,7 +15,7 @@ jobs:
       id-token: write
 
     steps:
-      # Step 1: Checkout Repository (Pinned to exact SHA of v4.1.7)
+      # Step 1: Checkout Repository
       - name: Checkout Repository
         uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
@@ -23,7 +23,7 @@ jobs:
 
       # Step 2: Setup PHP & Recursive Linter
       - name: Setup PHP and Run Linter
-        uses: shivammathur/setup-php@c541c155eee82b00f5b280800fa2cbcfeb253b20 # v2.30.5
+        uses: shivammathur/setup-php@c665c7a0d0d880be0a6723c316f731c5188bf7d0 # v2.30.0
         with:
           php-version: '8.1'
 
@@ -32,7 +32,7 @@ jobs:
 
       # Step 3: SAST Code Analysis (SonarQube)
       - name: SonarQube Scan (SAST)
-        uses: SonarSource/sonarqube-scan-action@0302b9dd0558b29c9e504c55210c4270bc706691 # v5.0.0
+        uses: SonarSource/sonarqube-scan-action@512ed79427027c9c2dd3c56338e55959955e8841 # v5.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
