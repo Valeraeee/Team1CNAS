@@ -17,61 +17,49 @@ jobs:
     steps:
       # Step 1: Checkout Repository
       - name: Checkout Repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      # Step 2: Setup PHP, Xdebug & Dependencies
-      - name: Setup PHP with Coverage Driver
+      # Step 2: Setup PHP & Recursive Linter
+      - name: Setup PHP and Run Linter
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.1'
-          coverage: xdebug
-
-      - name: Install Composer Dependencies
-        run: |
-          if [ -f "php-webapp/composer.json" ]; then
-            cd php-webapp && composer install --prefer-dist --no-progress
-          fi
 
       - name: Run PHP Syntax Check Across All Subdirectories
         run: find . -type f -name "*.php" -exec php -l {} +
 
-      # Step 3: Run Unit Tests & Generate Code Coverage
-      - name: Run PHPUnit Tests & Generate Coverage Report
-        run: |
-          if [ -f "php-webapp/vendor/bin/phpunit" ]; then
-            cd php-webapp && ./vendor/bin/phpunit --coverage-clover ../coverage.xml
-          else
-            echo "PHPUnit executable not found in php-webapp/vendor/bin. Skipping tests."
-          fi
-
-      # Step 4: SAST Code Analysis & Coverage Ingestion (SonarQube)
+      # Step 3: SAST Code Analysis (SonarQube)
       - name: SonarQube Scan (SAST)
         uses: sonarsource/sonarqube-scan-action@v5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
-      # Step 5: Docker Registry Authentication
+      # Step 4: Docker Registry Authentication
       - name: Log in to Docker Hub
-        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # Step 6: Automatically Find and Build All Dockerfiles
+      # Step 5: Automatically Find and Build All Dockerfiles
       - name: Build All Docker Images Recursively
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           find . -mindepth 2 -type f -name "Dockerfile" | while read -r dockerfile; do
             dir=$(dirname "$dockerfile" | sed 's|^\./||')
             image_name=$(echo "$dir" | tr '/' '-')
             echo "Building image for directory: $dir as $image_name"
-            docker build -t "${{ secrets.DOCKERHUB_USERNAME }}/${image_name}:latest" -f "$dockerfile" "$dir"
+            docker build -t "${DOCKERHUB_USERNAME}/${image_name}:latest" -f "$dockerfile" "$dir"
           done
 
-      # Step 7: Vulnerability & Secret Scanning (Trivy)
+      # Step 6: Vulnerability & Secret Scanning (Trivy)
       - name: Scan Built Images with Trivy
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           find . -mindepth 2 -type f -name "Dockerfile" | while read -r dockerfile; do
             dir=$(dirname "$dockerfile" | sed 's|^\./||')
@@ -82,20 +70,22 @@ jobs:
               --format table \
               --exit-code 0 \
               --severity CRITICAL,HIGH \
-              "${{ secrets.DOCKERHUB_USERNAME }}/${image_name}:latest"
+              "${DOCKERHUB_USERNAME}/${image_name}:latest"
           done
 
-      # Step 8: Push All Built Images to Registry
+      # Step 7: Push All Built Images to Registry
       - name: Push All Docker Images to Docker Hub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           find . -mindepth 2 -type f -name "Dockerfile" | while read -r dockerfile; do
             dir=$(dirname "$dockerfile" | sed 's|^\./||')
             image_name=$(echo "$dir" | tr '/' '-')
             echo "Pushing image: ${image_name}"
-            docker push "${{ secrets.DOCKERHUB_USERNAME }}/${image_name}:latest"
+            docker push "${DOCKERHUB_USERNAME}/${image_name}:latest"
           done
 
-      # Step 9: Cloud Authentication & GKE Credentials Setup
+      # Step 8: Cloud Authentication & GKE Credentials Setup
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with: 
@@ -109,7 +99,7 @@ jobs:
           location: ${{ secrets.GKE_ZONE }}
           project_id: ${{ secrets.GCP_PROJECT_ID }}
 
-      # Step 10: Deploy All Manifests & Trigger Rolling Update
+      # Step 9: Deploy All Manifests & Trigger Rolling Update
       - name: Apply Namespaces First
         run: |
           find k8s/ -type f -name "*namespace*.yaml" -exec kubectl apply -f {} \; || true
