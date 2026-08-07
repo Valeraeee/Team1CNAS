@@ -121,16 +121,25 @@ jobs:
       # Step 10: Team Notifications (Discord Webhook)
       - name: Notify Discord on Success
         if: success()
-        uses: Ilshat/action-discord@v1
+        uses: sarisia/webhooks-action@v1
         with:
-          args: '✅ **DevSecOps Pipeline Succeeded!** \nBranch: `${{ github.ref_name }}`\nCommit: `${{ github.sha }}`\nStatus: All SAST, Trivy, and GKE Deployment steps passed.'
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          title: "✅ DevSecOps Pipeline Succeeded!"
+          description: |
+            Branch: `${{ github.ref_name }}`
+            Commit: `${{ github.sha }}`
+            Status: All SAST, Trivy, and GKE Deployment steps passed.
+          color: 0x00ff00
+  
       - name: Notify Discord on Failure
         if: failure()
-        uses: Ilshat/action-discord@v1
+        uses: sarisia/webhooks-action@v1
         with:
-          args: '🚨 **DevSecOps Pipeline Failed!** \nBranch: `${{ github.ref_name }}`\nCommit: `${{ github.sha }}`\nTriggered by: `${{ github.actor }}`\nPlease check GitHub Actions logs for security gate or build failures.'
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+          webhook: ${{ secrets.DISCORD_WEBHOOK }}
+          title: "🚨 DevSecOps Pipeline Failed!"
+          description: |
+            Branch: `${{ github.ref_name }}`
+            Commit: `${{ github.sha }}`
+            Triggered by: `${{ github.actor }}`
+            Please check GitHub Actions logs for security gate or build failures.
+          color: 0xff0000
