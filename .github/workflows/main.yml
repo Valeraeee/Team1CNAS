@@ -118,28 +118,23 @@ jobs:
         run: |
           kubectl rollout restart deployment --all || true
           kubectl rollout restart statefulset --all || true
-      # Step 10: Team Notifications (Discord Webhook)
+      # Step 10: Team Notifications (Discord Webhook via cURL)
       - name: Notify Discord on Success
         if: success()
-        uses: sarisia/webhooks-action@v1
-        with:
-          webhook: ${{ secrets.DISCORD_WEBHOOK }}
-          title: "✅ DevSecOps Pipeline Succeeded!"
-          description: |
-            Branch: `${{ github.ref_name }}`
-            Commit: `${{ github.sha }}`
-            Status: All SAST, Trivy, and GKE Deployment steps passed.
-          color: 0x00ff00
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               -d "{\"embeds\": [{\"title\": \"✅ DevSecOps Pipeline Succeeded!\", \"description\": \"Branch: \`${{ github.ref_name }}\`\nCommit: \`${{ github.sha }}\`\nStatus: All SAST, Trivy, and GKE Deployment steps passed.\", \"color\": 65280}]}" \
+               "$DISCORD_WEBHOOK"
   
       - name: Notify Discord on Failure
         if: failure()
-        uses: sarisia/webhooks-action@v1
-        with:
-          webhook: ${{ secrets.DISCORD_WEBHOOK }}
-          title: "🚨 DevSecOps Pipeline Failed!"
-          description: |
-            Branch: `${{ github.ref_name }}`
-            Commit: `${{ github.sha }}`
-            Triggered by: `${{ github.actor }}`
-            Please check GitHub Actions logs for security gate or build failures.
-          color: 0xff0000
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               -d "{\"embeds\": [{\"title\": \"🚨 DevSecOps Pipeline Failed!\", \"description\": \"Branch: \`${{ github.ref_name }}\`\nCommit: \`${{ github.sha }}\`\nTriggered by: \`${{ github.actor }}\`\nPlease check GitHub Actions logs for security gate or build failures.\", \"color\": 16711680}]}" \
+               "$DISCORD_WEBHOOK"
