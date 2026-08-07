@@ -23,7 +23,7 @@ jobs:
 
       # Step 2: Setup PHP & Recursive Linter
       - name: Setup PHP and Run Linter
-        uses: shivammathur/setup-php@9e7209052584988e8272999128334469d762e15b # v2.32.0
+        uses: shivammathur/setup-php@v2
         with:
           php-version: '8.1'
 
@@ -32,7 +32,7 @@ jobs:
 
       # Step 3: SAST Code Analysis (SonarQube)
       - name: SonarQube Scan (SAST)
-        uses: SonarSource/sonarqube-scan-action@bf5a92ba4b732e70390a36ef0186937f2ffbe8a0 # v5.0.0
+        uses: sonarsource/sonarqube-scan-action@v5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
@@ -81,13 +81,13 @@ jobs:
 
       # Step 8: Cloud Authentication & GKE Credentials Setup
       - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@6fc4abf3292bf833cf6e1271d6513a392c7242d1 # v2.1.8
+        uses: google-github-actions/auth@v2
         with: 
           workload_identity_provider: 'projects/471203131665/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
           service_account: 'cnas-cicd-sa@cnas-team1-project.iam.gserviceaccount.com'
 
       - name: Get GKE credentials
-        uses: google-github-actions/get-gke-credentials@61644788102a2813fb6453965b0c9ca8ae1dd473 # v2.3.2
+        uses: google-github-actions/get-gke-credentials@v2
         with:
           cluster_name: ${{ secrets.GKE_CLUSTER }}
           location: ${{ secrets.GKE_ZONE }}
