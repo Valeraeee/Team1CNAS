@@ -1,0 +1,172 @@
+name: Secure DevSecOps CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  devsecops-pipeline:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: rootpass
+          MYSQL_DATABASE: mydb
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -prootpass"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: rootpass
+      DB_NAME: mydb
+
+    steps:
+      # Step 1: Checkout Repository
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Step 2: Setup PHP & Recursive Linter
+      - name: Setup PHP & Xdebug
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          coverage: xdebug # Enables code coverage generation
+          extensions: mysqli
+
+      - name: PHP Linting Check
+        run: find . -type f -name "*.php" -exec php -l {} +
+
+      - name: Wait for MySQL to be ready
+        run: |
+          for i in {1..20}; do
+            mysqladmin ping -h 127.0.0.1 -P 3306 -uroot -prootpass && break
+            sleep 2
+          done
+
+      - name: Load database schema
+        run: mysql -h 127.0.0.1 -P 3306 -uroot -prootpass mydb < mysql/users.sql
+
+      - name: Install Dependencies & Run PHPUnit
+        run: |
+          cd php-webapp
+          composer install
+          ./vendor/bin/phpunit --coverage-clover coverage.xml
+        
+      # Step 3: SAST Code Analysis (SonarQube)
+      - name: SonarQube Scan (SAST)
+        uses: sonarsource/sonarqube-scan-action@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      # Step 4: Docker Registry Authentication
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Step 5: Automatically Find and Build All Dockerfiles
+      - name: Build All Docker Images Recursively
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          find . -mindepth 2 -type f -name "Dockerfile" | while read -r dockerfile; do
+            dir=$(dirname "$dockerfile" | sed 's|^\./||')
+            image_name=$(echo "$dir" | tr '/' '-')
+            echo "Building image for directory: $dir as $image_name"
+            docker build -t "${DOCKERHUB_USERNAME}/${image_name}:latest" -f "$dockerfile" "$dir"
+          done
+
+      # Step 6: Vulnerability & Secret Scanning (Trivy)
+      - name: Scan Built Images with Trivy
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          find . -mindepth 2 -type f -name "Dockerfile" | while read -r dockerfile; do
+            dir=$(dirname "$dockerfile" | sed 's|^\./||')
+            image_name=$(echo "$dir" | tr '/' '-')
+            echo "Scanning image: ${image_name}"
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+              aquasec/trivy:latest image \
+              --format table \
+              --exit-code 1 \
+              --severity CRITICAL,HIGH \
+              "${DOCKERHUB_USERNAME}/${image_name}:latest"
+          done
+
+      # Step 7: Push All Built Images to Registry
+      - name: Push All Docker Images to Docker Hub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          find . -mindepth 2 -type f -name "Dockerfile" | while read -r dockerfile; do
+            dir=$(dirname "$dockerfile" | sed 's|^\./||')
+            image_name=$(echo "$dir" | tr '/' '-')
+            echo "Pushing image: ${image_name}"
+            docker push "${DOCKERHUB_USERNAME}/${image_name}:latest"
+          done
+
+      # Step 8: Cloud Authentication & GKE Credentials Setup
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with: 
+          workload_identity_provider: 'projects/471203131665/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
+          service_account: 'cnas-cicd-sa@cnas-team1-project.iam.gserviceaccount.com'
+
+      - name: Get GKE credentials
+        uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ secrets.GKE_CLUSTER }}
+          location: ${{ secrets.GKE_ZONE }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      # Step 9: Deploy All Manifests & Trigger Rolling Update
+      - name: Apply Namespaces First
+        run: |
+          find k8s/ -type f -name "*namespace*.yaml" -exec kubectl apply -f {} \; || true
+
+      - name: Apply All Kubernetes Manifests Recursively
+        run: kubectl apply -f k8s/ --recursive
+
+      - name: Force Rollout Restarts
+        run: |
+          kubectl rollout restart deployment --all || true
+          kubectl rollout restart statefulset --all || true
+      # Step 10: Team Notifications (Discord Webhook via cURL)
+      - name: Notify Discord on Success
+        if: success()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               -d "{\"embeds\": [{\"title\": \"✅ DevSecOps Pipeline Succeeded!\", \"description\": \"Branch: \`${{ github.ref_name }}\`\nCommit: \`${{ github.sha }}\`\nStatus: All SAST, Trivy, and GKE Deployment steps passed.\", \"color\": 65280}]}" \
+               "$DISCORD_WEBHOOK"
+  
+      - name: Notify Discord on Failure
+        if: failure()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          curl -H "Content-Type: application/json" \
+               -X POST \
+               -d "{\"embeds\": [{\"title\": \"🚨 DevSecOps Pipeline Failed!\", \"description\": \"Branch: \`${{ github.ref_name }}\`\nCommit: \`${{ github.sha }}\`\nTriggered by: \`${{ github.actor }}\`\nPlease check GitHub Actions logs for security gate or build failures.\", \"color\": 16711680}]}" \
+               "$DISCORD_WEBHOOK"
