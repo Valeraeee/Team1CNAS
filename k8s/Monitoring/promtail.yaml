@@ -67,22 +67,22 @@ data:
     scrape_configs:
       # ── Kubernetes pod log discovery ──────────────────────────────────────
       # Reads logs from /var/log/pods on the host node.
-      # Kubernetes writes each container's stdout/stderr here as plain text files.
+      # GKE uses containerd (CRI) as the container runtime, which writes logs
+      # in CRI format rather than Docker JSON format, so the cri stage is used.
       - job_name: kubernetes-pods
+
+        pipeline_stages:
+          - cri: {}  # GKE/containerd writes CRI-format logs, not Docker JSON
+
         kubernetes_sd_configs:
           - role: pod
 
-        # pipeline_stages parse the raw log line before sending to Loki.
-        # The docker stage extracts the log field from the JSON wrapper that
-        # the container runtime wraps around each line.
-        pipeline_stages:
-          - docker: {}
-
         relabel_configs:
-          # Only collect logs from pods that are actually running on this node
+          # Keep only pods running on the same node as this Promtail instance.
+          # ${HOSTNAME} is injected from the HOSTNAME env var (spec.nodeName).
           - source_labels: [__meta_kubernetes_pod_node_name]
-            action: replace
-            target_label: __host__
+            action: keep
+            regex: ${HOSTNAME}
 
           # Drop pods that have opted out with annotation:
           #   promtail.io/scrape: "false"
@@ -93,27 +93,24 @@ data:
           # Attach useful Kubernetes metadata as Loki labels so you can
           # filter logs in Grafana by namespace, pod, container, etc.
           - source_labels: [__meta_kubernetes_namespace]
-            action: replace
             target_label: namespace
 
           - source_labels: [__meta_kubernetes_pod_name]
-            action: replace
             target_label: pod
 
           - source_labels: [__meta_kubernetes_pod_container_name]
-            action: replace
             target_label: container
 
           - source_labels: [__meta_kubernetes_pod_label_app]
-            action: replace
             target_label: app
 
-          # Build the path to the log file on the host node.
-          # K8s writes logs to: /var/log/pods/<namespace>_<pod>_<uid>/<container>/*.log
-          - replacement: /var/log/pods/*$1*/*/*.log
-            source_labels: [__meta_kubernetes_pod_uid, __meta_kubernetes_pod_container_name]
-            separator: /
+          # Build the path to the log file using only the pod UID.
+          # GKE writes logs to: /var/log/pods/<namespace>_<pod>_<uid>/<container>/*.log
+          # Using just the UID (not a combined UID+container value) ensures the
+          # glob matches the real directory structure on the node.
+          - source_labels: [__meta_kubernetes_pod_uid]
             target_label: __path__
+            replacement: /var/log/pods/*$1/*/*.log
 
 ---
 # ── DaemonSet ─────────────────────────────────────────────────────────────────
