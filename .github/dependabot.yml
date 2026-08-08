@@ -1,7 +1,14 @@
 version: 2
 updates:
-  # Automatically monitors and updates your GitHub Actions pipeline
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly" # Checks for fresh SHAs every week
+      interval: "weekly"
+    # Prevent breaking changes by blocking major version jumps:
+    ignore:
+      - dependency-name: "actions/checkout"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "google-github-actions/auth"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "docker/login-action"
+        update-types: ["version-update:semver-major"]
