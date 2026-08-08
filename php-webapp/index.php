@@ -4,6 +4,7 @@
 <head><title>CNAS Assignment - Team Members List</title></head>
 <body>
 <h2>Team Members in Class -T01/T02 Team – 01/02/03/04 </h2>
+<p style="color:gray;font-size:12px;">Served by pod: <?php echo gethostname(); ?></p>
 <a href="create.php">Add New Team Member</a>
 <table border="1" cellpadding="8" cellspacing="0">
 <tr><th>ID</th><th>Student Name</th><th>Email</th><th>Actions</th></tr>
