@@ -75,7 +75,7 @@ jobs:
 
       # Step 3: SAST Code Analysis (SonarQube)
       - name: SonarQube Scan (SAST)
-        uses: sonarsource/sonarqube-scan-action@v5
+        uses: sonarsource/sonarqube-scan-action@v8
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
