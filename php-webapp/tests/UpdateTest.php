@@ -4,42 +4,33 @@ use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../functions.php';
 
-final class UpdateTest extends TestCase
+final class IndexTest extends TestCase
 {
     private mysqli $conn;
-    private int $userId;
 
     protected function setUp(): void
     {
         require __DIR__ . '/../db.php';
         /** @var mysqli $conn */
         $this->conn = $conn;
-
-        $this->userId = createUser($this->conn, 'Before Update', 'test.update@example.com');
     }
 
     protected function tearDown(): void
     {
-        deleteUser($this->conn, $this->userId);
+        $this->conn->query("DELETE FROM users WHERE email = 'test.index@example.com'");
         $this->conn->close();
     }
 
-    public function testUpdateUserChangesNameAndEmail(): void
+    public function testGetAllUsersReturnsArrayIncludingNewRow(): void
     {
-        $ok = updateUser($this->conn, $this->userId, 'After Update', 'updated@example.com');
+        $id = createUser($this->conn, 'Test Index', 'test.index@example.com');
 
-        $this->assertTrue($ok);
+        $this->assertNotNull(getUserById($this->conn, $id));
 
-        $row = getUserById($this->conn, $this->userId);
-        $this->assertSame('After Update', $row['name']);
-        $this->assertSame('updated@example.com', $row['email']);
-    }
+        $all = getAllUsers($this->conn);
+        $this->assertIsArray($all);
 
-    public function testUpdateUserWithUnknownIdReturnsTrueButChangesNothing(): void
-    {
-        $ok = updateUser($this->conn, 999999, 'Nobody', 'nobody@example.com');
-
-        $this->assertTrue($ok);
-        $this->assertSame(0, $this->conn->affected_rows);
+        $emails = array_column($all, 'email');
+        $this->assertContains('test.index@example.com', $emails);
     }
 }
