@@ -44,13 +44,13 @@ jobs:
 
       # Step 1: Checkout Repository
       - name: Checkout Repository
-        uses: actions/checkout@v4.1.7
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       # Step 2: Setup PHP & Recursive Linter
       - name: Setup PHP & Xdebug
-        uses: shivammathur/setup-php@v2.27.0
+        uses: shivammathur/setup-php@v2
         with:
           php-version: '8.1'
           coverage: xdebug
@@ -58,14 +58,14 @@ jobs:
 
       # Step 3: SAST Code Analysis (SonarQube)
       - name: SonarQube Scan (SAST)
-        uses: sonarsource/sonarqube-scan-action@v3.0.0
+        uses: sonarsource/sonarqube-scan-action@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
       # Step 4: Docker Registry Authentication
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3.2.0
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -108,13 +108,13 @@ jobs:
 
       # Step 8: Cloud Authentication & GKE Credentials Setup
       - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2.1.3
+        uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: 'projects/471203131665/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
           service_account: 'cnas-cicd-sa@cnas-team1-project.iam.gserviceaccount.com'
 
       - name: Get GKE credentials
-        uses: google-github-actions/get-gke-credentials@v2.1.2
+        uses: google-github-actions/get-gke-credentials@v2
         with:
           cluster_name: ${{ secrets.GKE_CLUSTER }}
           location: ${{ secrets.GKE_ZONE }}
