@@ -36,25 +36,44 @@ jobs:
       DB_NAME: ${{ secrets.DB_TEST_NAME }}
 
     steps:
-      # Fixes the 'mysqladmin: command not found' crash on ubuntu-latest
-      - name: Install MySQL Client Tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y mysql-client
-
       # Step 1: Checkout Repository
       - name: Checkout Repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
 
-      # Step 2: Setup PHP & Recursive Linter
+      # Fixes the 'mysqladmin: command not found' crash on ubuntu-latest
+      - name: Install MySQL Client Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mysql-client
+
+      # Step 2: Setup PHP & Xdebug
       - name: Setup PHP & Xdebug
         uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
         with:
           php-version: '8.1'
           coverage: xdebug
           extensions: mysqli
+
+      - name: PHP Linting Check
+        run: find . -type f -name "*.php" -exec php -l {} +
+
+      - name: Wait for MySQL to be ready
+        run: |
+          for i in {1..20}; do
+            mysqladmin ping -h 127.0.0.1 -P 3306 -uroot -p"$DB_PASSWORD" && break
+            sleep 2
+          done
+
+      - name: Load database schema
+        run: mysql -h 127.0.0.1 -P 3306 -uroot -p"$DB_PASSWORD" "$DB_NAME" < mysql/users.sql
+
+      - name: Install Dependencies & Run PHPUnit
+        run: |
+          cd php-webapp
+          composer install
+          ./vendor/bin/phpunit --coverage-clover coverage.xml
 
       # Step 3: SAST Code Analysis (SonarQube)
       - name: SonarQube Scan (SAST)
