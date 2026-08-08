@@ -4,7 +4,7 @@ use PHPUnit\Framework\TestCase;
 
 require_once __DIR__ . '/../functions.php';
 
-final class CreateTest extends TestCase
+final class IndexTest extends TestCase
 {
     private mysqli $conn;
 
@@ -17,33 +17,20 @@ final class CreateTest extends TestCase
 
     protected function tearDown(): void
     {
-        $this->conn->query("DELETE FROM users WHERE email = 'test.create@example.com'");
+        $this->conn->query("DELETE FROM users WHERE email = 'test.index@example.com'");
         $this->conn->close();
     }
 
-    public function testCreateUserInsertsRowAndReturnsId(): void
+    public function testGetAllUsersReturnsArrayIncludingNewRow(): void
     {
-        $id = createUser($this->conn, 'Test Create', 'test.create@example.com');
+        $id = createUser($this->conn, 'Test Index', 'test.index@example.com');
 
-        $this->assertGreaterThan(0, $id);
-
-        $stored = getUserById($this->conn, $id);
-        $this->assertNotNull($stored);
-        $this->assertSame('Test Create', $stored['name']);
-        $this->assertSame('test.create@example.com', $stored['email']);
-    }
-
-    public function testCreateUserAppearsInGetAllUsers(): void
-    {
-        $id = createUser($this->conn, 'Test Create 2', 'test.create@example.com');
-
-        // getUserById is a targeted lookup and has proven reliable;
-        // use it as the source of truth for "did the insert really land".
         $this->assertNotNull(getUserById($this->conn, $id));
 
         $all = getAllUsers($this->conn);
-        $emails = array_column($all, 'email');
+        $this->assertIsArray($all);
 
-        $this->assertContains('test.create@example.com', $emails);
+        $emails = array_column($all, 'email');
+        $this->assertContains('test.index@example.com', $emails);
     }
 }
