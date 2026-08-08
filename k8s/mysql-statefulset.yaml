@@ -37,7 +37,7 @@ spec:
           mountPath: /var/lib/mysql
         resources:
           requests:
-            ephemeral-storage: "1Gi"
+            ephemeral-storage: "5Gi"
             cpu: "250m"
             memory: "512Mi"
           limits:
