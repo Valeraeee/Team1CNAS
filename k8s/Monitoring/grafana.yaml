@@ -69,6 +69,8 @@ metadata:
   labels:
     app: grafana
 spec:
+  strategy:
+    type: Recreate
   replicas: 1
   selector:
     matchLabels:
@@ -90,11 +92,17 @@ spec:
             - containerPort: 3000
               name: web
           env:
-            # Default admin credentials – override via K8s Secret in production
+            # Default admin credentials (password secret) – override via K8s Secret in production
             - name: GF_SECURITY_ADMIN_USER
-              value: "admin"
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-secret
+                  key: admin-user
             - name: GF_SECURITY_ADMIN_PASSWORD
-              value: "cnas2026!"
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-secret
+                  key: admin-password
             # Disable sign-up to prevent unauthorised accounts
             - name: GF_USERS_ALLOW_SIGN_UP
               value: "false"
