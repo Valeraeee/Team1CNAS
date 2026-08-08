@@ -35,11 +35,13 @@ spec:
           mountPath: /var/lib/mysql
         resources:
           requests:
+            ephemeral-storage: "1Gi"
             cpu: "250m"
             memory: "512Mi"
           limits:
             cpu: "1"
             memory: "1Gi"
+            ephemeral-storage: "5Gi"
   volumeClaimTemplates:
   - metadata:
       name: mysql-storage
