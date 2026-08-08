@@ -25,9 +25,12 @@ final class IndexTest extends TestCase
     {
         $id = createUser($this->conn, 'Test Index', 'test.index@example.com');
 
-        $all = getAllUsers($this->conn);
+        $this->assertNotNull(getUserById($this->conn, $id));
 
+        $all = getAllUsers($this->conn);
         $this->assertIsArray($all);
-        $this->assertContains($id, array_column($all, 'id'));
+
+        $emails = array_column($all, 'email');
+        $this->assertContains('test.index@example.com', $emails);
     }
 }
