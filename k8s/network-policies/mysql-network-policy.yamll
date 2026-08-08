@@ -1,0 +1,184 @@
+# ==============================================================================
+#  MySQL Network Policy – Least-Privilege Ingress/Egress Guard
+#  File: k8s/network-policies/mysql-network-policy.yaml
+#
+#  PURPOSE
+#  -------
+#  This file enforces network-level isolation for the MySQL database pod.
+#  It ensures that:
+#    - Only the PHP application pods can open TCP connections to MySQL on port 3306.
+#    - Every other pod in the cluster is silently dropped at the network layer
+#      before it can even attempt authentication.
+#    - MySQL has no externally reachable endpoint (it is ClusterIP-only).
+#
+#  PRINCIPLE OF LEAST PRIVILEGE
+#  -----------------------------
+#  "Least privilege" means granting the minimum access required for the system
+#  to function and denying everything else by default.
+#
+#  The companion policy "default-deny-all" in network-policies.yaml already
+#  blocks ALL ingress and egress for every pod in the default namespace.
+#  The two policies below carve out the one and only allowed path:
+#
+#      php-app pods  ──TCP 3306──►  sql-db (MySQL) pods     ← ALLOWED
+#      anything else ──any port──►  sql-db (MySQL) pods     ← BLOCKED
+#      internet      ──────────────────────────────────────  NOT EXPOSED
+#
+#  LABEL VERIFICATION (checked against live manifests before writing this file)
+#  -----------------------------------------------------------------------------
+#  PHP pods (k8s/deployment.yaml, spec.template.metadata.labels):
+#      app: php-app
+#
+#  MySQL pods (k8s/mysql-statefulset.yaml, spec.template.metadata.labels):
+#      app: sql-db
+#
+#  MySQL Service (k8s/mysql-service.yaml):
+#      name: mysql  |  type: ClusterIP (default)  |  port: 3306
+#
+#  Both policies operate in the "default" namespace where both workloads live.
+# ==============================================================================
+
+
+# ── Policy 1: allow-php-to-mysql ──────────────────────────────────────────────
+#
+#  WHAT IT DOES
+#  This policy is attached to the MySQL pods (podSelector: app=sql-db).
+#  It controls who is allowed to SEND traffic INTO MySQL (Ingress direction).
+#
+#  WHY ONLY PHP PODS
+#  MySQL is a backend database that should only be reached by the application
+#  layer. Allowing any other pod (monitoring agents, batch jobs, rogue pods,
+#  compromised sidecars) to reach port 3306 would expose the database to
+#  credential brute-force attacks, data exfiltration, or lateral movement.
+#  By naming php-app pods explicitly, we ensure no other workload can connect
+#  even if it is running in the same namespace.
+#
+#  WHY PORT 3306
+#  3306 is the default TCP port for the MySQL wire protocol. The PHP app
+#  connects using mysqli (see php-webapp/db.php) and the StatefulSet exposes
+#  containerPort 3306. No other port on the MySQL pod needs to be reachable
+#  from the application layer.
+#
+#  WHAT GETS BLOCKED
+#  - Any pod without the label app=php-app (e.g. BusyBox, curl, monitoring,
+#    Promtail, Prometheus, any new pod you deploy without this label).
+#  - Traffic from every other namespace (monitoring, ingress-nginx, kube-system).
+#  - Any traffic on ports other than 3306 (there is nothing else to reach).
+#  - All external/internet traffic (MySQL has no NodePort or LoadBalancer).
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-php-to-mysql          # clear, descriptive name for kubectl get netpol
+  namespace: default                # same namespace as both workloads
+  labels:
+    app: sql-db                     # optional: helps filter with -l selectors
+    policy-type: ingress-guard      # optional: documents the policy role
+spec:
+  # ── Target: which pods this policy protects ───────────────────────────────
+  # This selector matches the MySQL pods using the label defined in
+  # k8s/mysql-statefulset.yaml → spec.template.metadata.labels.
+  podSelector:
+    matchLabels:
+      app: sql-db      # ← must match MySQL pod label exactly
+
+  # This policy controls INCOMING traffic into the selected pods.
+  policyTypes:
+    - Ingress
+
+  ingress:
+    # ── Allowed source ────────────────────────────────────────────────────
+    # Only pods carrying the label app=php-app may initiate connections.
+    # This label is defined in k8s/deployment.yaml →
+    #   spec.template.metadata.labels: app: php-app
+    #
+    # The podSelector here is evaluated within the same namespace (default),
+    # so it will never accidentally match a same-named pod in another namespace.
+    - from:
+        - podSelector:
+            matchLabels:
+              app: php-app   # ← must match PHP pod label exactly
+
+      # ── Allowed port ──────────────────────────────────────────────────
+      # TCP 3306 is the MySQL wire protocol port.
+      # Only this port is opened; all other ports on the MySQL pod remain
+      # unreachable even from php-app pods.
+      ports:
+        - protocol: TCP
+          port: 3306
+
+
+# ── Policy 2: allow-php-egress-to-mysql ──────────────────────────────────────
+#
+#  WHAT IT DOES
+#  The companion "default-deny-all" policy (in network-policies.yaml) blocks
+#  ALL egress (outbound) traffic from every pod in the default namespace.
+#  Without this policy, PHP pods cannot send packets to MySQL at all, even
+#  though Policy 1 above permits MySQL to receive them.
+#
+#  This policy is attached to PHP pods (podSelector: app=php-app).
+#  It explicitly allows:
+#    1. Outbound TCP 3306 to MySQL pods (app=sql-db)
+#    2. Outbound UDP/TCP 53 to kube-system (DNS resolution)
+#
+#  WHY DNS IS INCLUDED
+#  The PHP app connects to MySQL using the hostname "mysql" (DB_HOST env var).
+#  Kubernetes resolves this to the ClusterIP of the "mysql" Service via
+#  kube-dns, which runs in the kube-system namespace on port 53.
+#  Without the DNS egress rule, the hostname lookup fails and the connection
+#  never starts even though port 3306 itself would be allowed.
+#
+#  WHAT GETS BLOCKED (PHP egress)
+#  Under the default-deny-all rule, PHP pods cannot reach:
+#    - The internet (no outbound HTTP/HTTPS unless explicitly added)
+#    - Other pods in the cluster (only sql-db on 3306 is whitelisted)
+#    - Any port other than 3306 on sql-db
+#  This prevents a compromised PHP pod from pivoting to other internal services.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-php-egress-to-mysql   # clear, descriptive name
+  namespace: default
+  labels:
+    app: php-app
+    policy-type: egress-guard
+spec:
+  # ── Target: which pods this policy grants egress rights to ───────────────
+  # Matches PHP application pods using the label from
+  # k8s/deployment.yaml → spec.template.metadata.labels.
+  podSelector:
+    matchLabels:
+      app: php-app     # ← must match PHP pod label exactly
+
+  # This policy controls OUTGOING traffic from the selected pods.
+  policyTypes:
+    - Egress
+
+  egress:
+    # ── Rule A: allow PHP → MySQL on TCP 3306 ────────────────────────────
+    # PHP pods may open outbound connections to MySQL pods on port 3306 only.
+    # The destination is identified by the MySQL pod label, not by IP or
+    # Service name, so this works even if the pod is rescheduled.
+    - to:
+        - podSelector:
+            matchLabels:
+              app: sql-db   # ← must match MySQL pod label exactly
+      ports:
+        - protocol: TCP
+          port: 3306        # MySQL wire protocol port
+
+    # ── Rule B: allow DNS resolution → kube-system on UDP/TCP 53 ─────────
+    # kube-dns (CoreDNS) runs in the kube-system namespace and listens on
+    # port 53 (UDP for queries, TCP for large responses / zone transfers).
+    # PHP needs DNS to resolve the hostname "mysql" → ClusterIP.
+    # Without this rule the getaddrinfo() call inside mysqli_connect() fails.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system   # built-in label on kube-system
+      ports:
+        - protocol: UDP
+          port: 53    # standard DNS port (most queries use UDP)
+        - protocol: TCP
+          port: 53    # fallback for large DNS responses
