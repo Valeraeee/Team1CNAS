@@ -82,7 +82,7 @@ jobs:
             docker build -t "${DOCKERHUB_USERNAME}/${image_name}:latest" -f "$dockerfile" "$dir"
           done
 
-      # Step 6: Vulnerability & Secret Scanning (Trivy - Pinned to safe immutable image digest)
+      # Step 6: Vulnerability & Secret Scanning (Trivy)
       - name: Scan Built Images with Trivy
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -91,7 +91,7 @@ jobs:
             dir=$(dirname "$dockerfile" | sed 's|^\./||')
             image_name=$(echo "$dir" | tr '/' '-')
             echo "Scanning image: ${image_name}"
-            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasecurity/trivy:0.53.0 image --format table --exit-code 1 --severity CRITICAL,HIGH "${DOCKERHUB_USERNAME}/${image_name}:latest"
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.53.0 image --format table --exit-code 1 --severity CRITICAL,HIGH "${DOCKERHUB_USERNAME}/${image_name}:latest"
           done
 
       # Step 7: Push All Built Images to Registry
