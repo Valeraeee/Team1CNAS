@@ -1,5 +1,3 @@
-FROM mysql:latest
+FROM mysql:26.7.0
 COPY *.sql /docker-entrypoint-initdb.d/
-ENV MYSQL_DATABASE mydb
-ENV MYSQL_ROOT_PASSWORD rootpass
 EXPOSE 3306
