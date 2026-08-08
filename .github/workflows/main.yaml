@@ -91,7 +91,7 @@ jobs:
             dir=$(dirname "$dockerfile" | sed 's|^\./||')
             image_name=$(echo "$dir" | tr '/' '-')
             echo "Scanning image: ${image_name}"
-            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy@sha256:0d6df6cf2a3161c16924b22c7a20c9f1311ff98f6d7647895e7912e5982cd6d image --format table --exit-code 1 --severity CRITICAL,HIGH "${DOCKERHUB_USERNAME}/${image_name}:latest"
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasecurity/trivy@sha256:0d6df6cf2a3161c16924b22c7a20c9f1311ff98f6d7647895e7912e5982cd6d image --format table --exit-code 1 --severity CRITICAL,HIGH "${DOCKERHUB_USERNAME}/${image_name}:latest"
           done
 
       # Step 7: Push All Built Images to Registry
