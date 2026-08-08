@@ -36,18 +36,24 @@ jobs:
       DB_NAME: ${{ secrets.DB_TEST_NAME }}
 
     steps:
-      # Step 1: Checkout Repository
+      # Fixes the 'mysqladmin: command not found' crash on ubuntu-latest
+      - name: Install MySQL Client Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mysql-client
+
+      # Step 1: Checkout Repository (SHA-pinned v4.2.2)
       - name: Checkout Repository
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
 
-      # Step 2: Setup PHP & Recursive Linter
+      # Step 2: Setup PHP & Recursive Linter (SHA-pinned v2.32.0)
       - name: Setup PHP & Xdebug
-        uses: shivammathur/setup-php@v2
+        uses: shivammathur/setup-php@7c0b05b3879bc08a287232204c3e80e3c1537b03 # v2.32.0
         with:
           php-version: '8.1'
-          coverage: xdebug # Enables code coverage generation
+          coverage: xdebug
           extensions: mysqli
 
       - name: PHP Linting Check
@@ -69,16 +75,16 @@ jobs:
           composer install
           ./vendor/bin/phpunit --coverage-clover coverage.xml
 
-      # Step 3: SAST Code Analysis (SonarQube)
+      # Step 3: SAST Code Analysis (SHA-pinned safe v3.1.0 to bypass v5 bugs)
       - name: SonarQube Scan (SAST)
-        uses: sonarsource/sonarqube-scan-action@v5
+        uses: sonarsource/sonarqube-scan-action@0ec0cd31c8091176b6d510e8d022b7a8a1c89fbf # v3.1.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
-      # Step 4: Docker Registry Authentication
+      # Step 4: Docker Registry Authentication (SHA-pinned v3.3.0)
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -95,7 +101,7 @@ jobs:
             docker build -t "${DOCKERHUB_USERNAME}/${image_name}:latest" -f "$dockerfile" "$dir"
           done
 
-      # Step 6: Vulnerability & Secret Scanning (Trivy)
+      # Step 6: Vulnerability & Secret Scanning (Trivy - Pinned to safe immutable image digest)
       - name: Scan Built Images with Trivy
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -104,7 +110,7 @@ jobs:
             dir=$(dirname "$dockerfile" | sed 's|^\./||')
             image_name=$(echo "$dir" | tr '/' '-')
             echo "Scanning image: ${image_name}"
-            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:latest image --format table --exit-code 1 --severity CRITICAL,HIGH "${DOCKERHUB_USERNAME}/${image_name}:latest"
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy@sha256:0d6df6cf2a3161c16924b22c7a20c9f1311ff98f6d7647895e791e25e982cd6d image --format table --exit-code 1 --severity CRITICAL,HIGH "${DOCKERHUB_USERNAME}/${image_name}:latest"
           done
 
       # Step 7: Push All Built Images to Registry
@@ -119,15 +125,15 @@ jobs:
             docker push "${DOCKERHUB_USERNAME}/${image_name}:latest"
           done
 
-      # Step 8: Cloud Authentication & GKE Credentials Setup
+      # Step 8: Cloud Authentication & GKE Credentials Setup (SHA-pinned v2.1.8 & v2.1.3)
       - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
+        uses: google-github-actions/auth@71fee32a0bb7e97b4d33d548e7d95701064931f1 # v2.1.8
         with:
           workload_identity_provider: 'projects/471203131665/locations/global/workloadIdentityPools/github-pool/providers/github-provider'
           service_account: 'cnas-cicd-sa@cnas-team1-project.iam.gserviceaccount.com'
 
       - name: Get GKE credentials
-        uses: google-github-actions/get-gke-credentials@v2
+        uses: google-github-actions/get-gke-credentials@60cc226bf986689d4cb7c76899146f313364f331 # v2.1.3
         with:
           cluster_name: ${{ secrets.GKE_CLUSTER }}
           location: ${{ secrets.GKE_ZONE }}
