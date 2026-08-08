@@ -156,6 +156,7 @@ spec:
           image: grafana/promtail:2.9.8   # matches the Loki version in loki.yaml
           args:
             - "-config.file=/etc/promtail/promtail.yaml"
+            - "-config.expand-env=true"
           ports:
             - name: http-metrics
               containerPort: 9080
