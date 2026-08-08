@@ -59,6 +59,16 @@ spec:
               memory: "512Mi"
               ephemeral-storage: "500Mi"
 
+          securityContext:
+            privileged: false
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            runAsUser: 1234
+            runAsGroup: 1234
+
           env:
             - name: DB_HOST
               value: "mysql"
