@@ -12,11 +12,13 @@ spec:
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxUnavailable: 0
-      maxSurge: 1
+      # Roll out one pod at a time without requiring capacity for a fourth pod.
+      # At least two of the three replicas remain available during the update.
+      maxUnavailable: 1
+      maxSurge: 0
 
   selector:
-    matchLabels:
+    matchLabels:Q
       app: php-app
 
   template:
@@ -62,3 +64,43 @@ spec:
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
+                  name: mysql-secret
+                  key: DB_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysql-secret
+                  key: DB_PASSWORD
+
+          startupProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 30
+
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 2
+            failureThreshold: 3
+            successThreshold: 1
+
+          terminationMessagePath: /dev/termination-log
+          terminationMessagePolicy: File
+
+      terminationGracePeriodSeconds: 30
