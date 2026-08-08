@@ -34,11 +34,27 @@ function createUser(mysqli $conn, string $name, string $email): int
 
 function updateUser(mysqli $conn, int $id, string $name, string $email): bool
 {
+    return updateUserAffectedRows($conn, $id, $name, $email) !== false;
+}
+
+/**
+ * Same as updateUser(), but returns the number of rows actually changed
+ * instead of a plain bool. Captured from the *statement* object right
+ * after execute() -- checking $conn->affected_rows afterwards is
+ * unreliable across different mysqli driver builds (a well-known quirk),
+ * which is why UpdateTest was failing in CI but not locally.
+ *
+ * Returns false if the query itself failed, otherwise an int (0 if no
+ * row matched the given id).
+ */
+function updateUserAffectedRows(mysqli $conn, int $id, string $name, string $email): int|false
+{
     $stmt = $conn->prepare("UPDATE users SET name = ?, email = ? WHERE id = ?");
     $stmt->bind_param("ssi", $name, $email, $id);
     $ok = $stmt->execute();
+    $affected = $stmt->affected_rows;
     $stmt->close();
-    return $ok;
+    return $ok ? $affected : false;
 }
 
 function deleteUser(mysqli $conn, int $id): bool
