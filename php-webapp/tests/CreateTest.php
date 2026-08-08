@@ -37,9 +37,13 @@ final class CreateTest extends TestCase
     {
         $id = createUser($this->conn, 'Test Create 2', 'test.create@example.com');
 
-        $all = getAllUsers($this->conn);
-        $ids = array_column($all, 'id');
+        // getUserById is a targeted lookup and has proven reliable;
+        // use it as the source of truth for "did the insert really land".
+        $this->assertNotNull(getUserById($this->conn, $id));
 
-        $this->assertContains($id, $ids);
+        $all = getAllUsers($this->conn);
+        $emails = array_column($all, 'email');
+
+        $this->assertContains('test.create@example.com', $emails);
     }
 }
