@@ -1,0 +1,7 @@
+version: 2
+updates:
+  # Automatically monitors and updates your GitHub Actions pipeline
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly" # Checks for fresh SHAs every week
