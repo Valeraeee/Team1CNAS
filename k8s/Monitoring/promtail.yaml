@@ -104,13 +104,15 @@ data:
           - source_labels: [__meta_kubernetes_pod_label_app]
             target_label: app
 
-          # Build the path to the log file using only the pod UID.
+          # Build the path to the log file on the host node.
           # GKE writes logs to: /var/log/pods/<namespace>_<pod>_<uid>/<container>/*.log
-          # Using just the UID (not a combined UID+container value) ensures the
-          # glob matches the real directory structure on the node.
-          - source_labels: [__meta_kubernetes_pod_uid]
+          # $1 expands to "pod-uid/container-name" (separator: /), so the final
+          # glob becomes: /var/log/pods/*pod-uid/container-name/*.log
+          # This matches the actual directory structure without the extra wildcard level.
+          - source_labels: [__meta_kubernetes_pod_uid, __meta_kubernetes_pod_container_name]
+            separator: /
             target_label: __path__
-            replacement: /var/log/pods/*$1/*/*.log
+            replacement: /var/log/pods/*$1/*.log
 
 ---
 # ── DaemonSet ─────────────────────────────────────────────────────────────────
@@ -186,12 +188,10 @@ spec:
               port: 9080
             initialDelaySeconds: 10
             periodSeconds: 10
-          livenessProbe:
-            httpGet:
-              path: /ready
-              port: 9080
-            initialDelaySeconds: 20
-            periodSeconds: 15
+          # Liveness probe intentionally removed: Promtail's /ready returns 500
+          # while it is still scanning for log files. A liveness probe against
+          # /ready would cause the container to be killed before it finds any
+          # logs, creating a restart loop. The readiness probe is sufficient.
 
       volumes:
         - name: promtail-config
