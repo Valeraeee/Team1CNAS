@@ -15,6 +15,8 @@ spec:
     spec:
       containers:
       - name: mysql
+        securityContext:
+          privileged: false # Prevents running container as privileged
         image: robbinyew/sql-db:latest
         imagePullPolicy: IfNotPresent
         ports:
