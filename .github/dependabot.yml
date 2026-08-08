@@ -4,6 +4,10 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Enforce pinning GitHub Actions using full commit SHAs
+    commit-message:
+      include: "scope"
+      pin-digits: true
     # Prevent breaking changes by blocking major version jumps:
     ignore:
       - dependency-name: "actions/checkout"
