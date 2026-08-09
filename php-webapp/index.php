@@ -1,23 +1,35 @@
-<?php include 'db.php'; ?>
+<?php include_once 'db.php'; ?>
 <!DOCTYPE html>
-<html>
-<head><title>CNAS Assignment - Team Members List</title></head>
+<html lang="en">
+<head>
+    <title>CNAS Assignment - Team Members List</title>
+</head>
 <body>
 <h2>Team Members in Class -T01/T02 Team – 01/02/03/04 </h2>
-<p style="color:gray;font-size:12px;">Served by pod: <?php echo gethostname(); ?></p>
+<p style="color:gray;font-size:12px;">Served by pod: <?php echo htmlspecialchars(gethostname()); ?></p>
 <a href="create.php">Add New Team Member</a>
-<table border="1" cellpadding="8" cellspacing="0">
-<tr><th>ID</th><th>Student Name</th><th>Email</th><th>Actions</th></tr>
+
+<table style="border: 1px solid black; border-collapse: collapse;">
+<tr>
+    <th style="border: 1px solid black; padding: 8px;">ID</th>
+    <th style="border: 1px solid black; padding: 8px;">Student Name</th>
+    <th style="border: 1px solid black; padding: 8px;">Email</th>
+    <th style="border: 1px solid black; padding: 8px;">Actions</th>
+</tr>
 <?php
 $result = $conn->query("SELECT * FROM users");
 while ($row = $result->fetch_assoc()) {
+    $id = htmlspecialchars($row['id']);
+    $name = htmlspecialchars($row['name']);
+    $email = htmlspecialchars($row['email']);
+    
     echo "<tr>
-            <td>{$row['id']}</td>
-            <td>{$row['name']}</td>
-            <td>{$row['email']}</td>
-            <td>
-                <a href='update.php?id={$row['id']}'>Edit</a> |
-                <a href='delete.php?id={$row['id']}'>Delete</a>
+            <td style='border: 1px solid black; padding: 8px;'>{$id}</td>
+            <td style='border: 1px solid black; padding: 8px;'>{$name}</td>
+            <td style='border: 1px solid black; padding: 8px;'>{$email}</td>
+            <td style='border: 1px solid black; padding: 8px;'>
+                <a href='update.php?id={$id}'>Edit</a> |
+                <a href='delete.php?id={$id}'>Delete</a>
             </td>
           </tr>";
 }
