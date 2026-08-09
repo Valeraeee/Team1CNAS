@@ -6,7 +6,7 @@ final class DbTest extends TestCase
 {
     public function testConnectionIsMysqliInstance(): void
     {
-        // NOSONAR
+        //NOSONAR
         require __DIR__ . '/../db.php';
         /** @var mysqli $conn */
         $this->assertInstanceOf(mysqli::class, $conn);
