@@ -179,15 +179,15 @@ jobs:
             --from-literal=admin-password="$GRAFANA_ADMIN_PASSWORD" \
             --dry-run=client -o yaml | kubectl apply -f -
 
-      # Optional monitoring enhancement: expose the existing Discord webhook
-      # to Grafana without storing the URL in a manifest or repository file.
+      # Optional monitoring enhancement: expose Grafana's dedicated Discord
+      # webhook without storing the URL in a manifest or repository file.
       - name: Create Grafana Alerting Secret
         env:
-          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK }}
+          GRAFANA_DISCORD_WEBHOOK_URL: ${{ secrets.GRAFANA_DISCORD_WEBHOOK }}
         run: |
-          : "${DISCORD_WEBHOOK_URL:?Set the DISCORD_WEBHOOK repository secret}"
+          : "${GRAFANA_DISCORD_WEBHOOK_URL:?Set the GRAFANA_DISCORD_WEBHOOK repository secret}"
           kubectl -n monitoring create secret generic grafana-alerting-secret \
-            --from-literal=discord-webhook-url="$DISCORD_WEBHOOK_URL" \
+            --from-literal=discord-webhook-url="$GRAFANA_DISCORD_WEBHOOK_URL" \
             --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Apply All Kubernetes Manifests Recursively
