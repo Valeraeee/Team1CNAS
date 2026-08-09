@@ -97,9 +97,11 @@ spec:
               name: grpc
           resources:
             requests:
+              ephemeral-storage: "1Gi"
               cpu: "100m"
               memory: "256Mi"
             limits:
+              ephemeral-storage: "1Gi"
               cpu: "300m"
               memory: "512Mi"
           volumeMounts:
