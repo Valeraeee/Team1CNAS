@@ -233,9 +233,11 @@ spec:
           # Reserve resources and prevent Prometheus from using excessive CPU or memory
           resources:
             requests:
+              ephemeral-storage: "1Gi"
               cpu: "200m"
               memory: "512Mi"
             limits:
+              ephemeral-storage: "1Gi"
               cpu: "500m"
               memory: "1Gi"
           volumeMounts:
