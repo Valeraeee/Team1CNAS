@@ -75,6 +75,11 @@ jobs:
           composer install
           ./vendor/bin/phpunit --coverage-clover coverage.xml
 
+      - name: Audit PHP Dependencies (SCA)
+        run: |
+          cd php-webapp
+          composer audit
+
       # Step 3: SAST Code Analysis (SonarQube)
       - name: SonarQube Scan (SAST)
         uses: sonarsource/sonarqube-scan-action@13990a695682794b53148ff9f6a8b6e22e43955e # v3
@@ -124,6 +129,11 @@ jobs:
             echo "Pushing image: ${image_name}"
             docker push "${DOCKERHUB_USERNAME}/${image_name}:latest"
           done
+
+      - name: Scan Kubernetes Manifests with Kube-Linter (IaC)
+        uses: stackrox/kube-linter-action@v1
+        with:
+          directory: k8s
 
       # Step 8: Cloud Authentication & GKE Credentials Setup
       - name: Authenticate to Google Cloud
@@ -183,7 +193,7 @@ jobs:
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         run: |
-          curl -H "Content-Type: application/json" -X POST -d '{"embeds": [{"title": "✅ DevSecOps Pipeline Succeeded!", "description": "Branch: `${{ github.ref_name }}`\nCommit: `${{ github.sha }}`\nStatus: All SAST, Trivy, and GKE Deployment steps passed.", "color": 65280}]}' "$DISCORD_WEBHOOK"
+          curl -H "Content-Type: application/json" -X POST -d '{"embeds": [{"title": "✅ DevSecOps Pipeline Succeeded!", "description": "Branch: `${{ github.ref_name }}`\nCommit: `${{ github.sha }}`\nStatus: All SAST, SCA, Trivy, IaC, and GKE Deployment steps passed.", "color": 65280}]}' "$DISCORD_WEBHOOK"
 
       - name: Notify Discord on Failure
         if: failure()
