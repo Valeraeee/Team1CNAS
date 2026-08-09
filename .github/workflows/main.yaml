@@ -184,10 +184,10 @@ jobs:
 
       - name: Force Rollout Restarts
         run: |
-          kubectl rollout restart deployment --all || true
-          kubectl rollout restart statefulset --all || true
-          kubectl -n monitoring rollout restart deployment --all
-          kubectl -n monitoring rollout restart daemonset --all
+          kubectl rollout restart deployment -n default || true
+          kubectl rollout restart statefulset -n default || true
+          kubectl -n monitoring rollout restart deployment || true
+          kubectl -n monitoring rollout restart daemonset || true
           kubectl -n monitoring rollout status deployment/grafana --timeout=180s
 
       # GF_SECURITY_ADMIN_PASSWORD initializes only a new Grafana database.
