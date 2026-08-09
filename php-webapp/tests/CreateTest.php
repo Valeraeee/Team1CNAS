@@ -10,7 +10,6 @@ final class CreateTest extends TestCase
 
     protected function setUp(): void
     {
-        
         require __DIR__ . '/../db.php'; //NOSONAR
         /** @var mysqli $conn */
         $this->conn = $conn;
