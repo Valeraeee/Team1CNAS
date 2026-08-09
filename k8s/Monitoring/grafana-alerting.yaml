@@ -1,0 +1,218 @@
+---
+# Grafana-managed runtime alerts and Discord notification routing.
+# The webhook URL is injected through DISCORD_WEBHOOK_URL at runtime; no
+# credential is stored in this ConfigMap or in the repository.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-alerting
+  namespace: monitoring
+data:
+  runtime-alerts.yaml: |
+    apiVersion: 1
+
+    contactPoints:
+      - orgId: 1
+        name: discord-runtime-alerts
+        receivers:
+          - uid: discord-runtime
+            type: discord
+            disableResolveMessage: false
+            settings:
+              url: $DISCORD_WEBHOOK_URL
+              use_discord_username: true
+
+    # This deployment provisions only the two CNAS runtime rules, so all
+    # Grafana alerts can safely use the Discord contact point.
+    policies:
+      - orgId: 1
+        receiver: discord-runtime-alerts
+        group_by:
+          - alertname
+        group_wait: 15s
+        group_interval: 1m
+        repeat_interval: 4h
+
+    groups:
+      - orgId: 1
+        name: cnas-runtime-alerts
+        folder: CNAS Runtime Alerts
+        interval: 1m
+        rules:
+          - uid: cnas-app-unavailable
+            title: PHP application unavailable
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 300
+                  to: 0
+                datasourceUid: prometheus-alerts
+                model:
+                  datasource:
+                    type: prometheus
+                    uid: prometheus-alerts
+                  editorMode: code
+                  expr: 'apache_up{job="php-app"}'
+                  instant: true
+                  intervalMs: 15000
+                  maxDataPoints: 43200
+                  range: false
+                  refId: A
+              - refId: B
+                relativeTimeRange:
+                  from: 0
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  conditions:
+                    - evaluator:
+                        params: []
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                          - B
+                      reducer:
+                        params: []
+                        type: last
+                      type: query
+                  datasource:
+                    type: __expr__
+                    uid: __expr__
+                  expression: A
+                  intervalMs: 1000
+                  maxDataPoints: 43200
+                  reducer: last
+                  refId: B
+                  type: reduce
+              - refId: C
+                relativeTimeRange:
+                  from: 0
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  conditions:
+                    - evaluator:
+                        params:
+                          - 1
+                        type: lt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                          - C
+                      reducer:
+                        params: []
+                        type: last
+                      type: query
+                  datasource:
+                    type: __expr__
+                    uid: __expr__
+                  expression: B
+                  intervalMs: 1000
+                  maxDataPoints: 43200
+                  refId: C
+                  type: threshold
+            noDataState: Alerting
+            execErrState: Error
+            for: 1m
+            annotations:
+              summary: PHP application monitoring target is unavailable
+              description: Apache Exporter has reported the PHP application as down for at least one minute. No data also triggers this alert.
+            labels:
+              alertname: PHPApplicationUnavailable
+              component: php-app
+              severity: critical
+              source: cnas-runtime
+            isPaused: false
+
+          - uid: cnas-app-high-cpu
+            title: Sustained high PHP application CPU
+            condition: C
+            data:
+              - refId: A
+                relativeTimeRange:
+                  from: 600
+                  to: 0
+                datasourceUid: prometheus-alerts
+                model:
+                  datasource:
+                    type: prometheus
+                    uid: prometheus-alerts
+                  editorMode: code
+                  expr: '100 * sum by (pod) (rate(container_cpu_usage_seconds_total{namespace="default", pod=~"php-app-.*", container!="", container!="POD"}[5m])) / 0.2'
+                  instant: true
+                  intervalMs: 15000
+                  maxDataPoints: 43200
+                  range: false
+                  refId: A
+              - refId: B
+                relativeTimeRange:
+                  from: 0
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  conditions:
+                    - evaluator:
+                        params: []
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                          - B
+                      reducer:
+                        params: []
+                        type: last
+                      type: query
+                  datasource:
+                    type: __expr__
+                    uid: __expr__
+                  expression: A
+                  intervalMs: 1000
+                  maxDataPoints: 43200
+                  reducer: last
+                  refId: B
+                  type: reduce
+              - refId: C
+                relativeTimeRange:
+                  from: 0
+                  to: 0
+                datasourceUid: __expr__
+                model:
+                  conditions:
+                    - evaluator:
+                        params:
+                          - 80
+                        type: gt
+                      operator:
+                        type: and
+                      query:
+                        params:
+                          - C
+                      reducer:
+                        params: []
+                        type: last
+                      type: query
+                  datasource:
+                    type: __expr__
+                    uid: __expr__
+                  expression: B
+                  intervalMs: 1000
+                  maxDataPoints: 43200
+                  refId: C
+                  type: threshold
+            noDataState: OK
+            execErrState: Error
+            for: 5m
+            annotations:
+              summary: PHP application CPU is above 80 percent
+              description: A PHP application Pod has used more than 80 percent of its 200m CPU request for at least five minutes.
+            labels:
+              alertname: PHPApplicationHighCPU
+              component: php-app
+              severity: warning
+              source: cnas-runtime
+            isPaused: false

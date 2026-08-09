@@ -18,6 +18,16 @@ data:
         isDefault: true
         editable: false
 
+      # A separate fixed UID makes file-provisioned alerts reproducible without
+      # changing the UID of an existing data source in Grafana's persistent DB.
+      - name: Prometheus Alerting
+        uid: prometheus-alerts
+        type: prometheus
+        access: proxy
+        url: http://prometheus-service:9090
+        isDefault: false
+        editable: false
+
       # Loki – log aggregation source for the Explore / Logs panels
       - name: Loki
         type: loki
@@ -115,6 +125,12 @@ spec:
                 secretKeyRef:
                   name: grafana-secret
                   key: admin-password
+            # Discord runtime-alert webhook from a separate Kubernetes Secret.
+            - name: DISCORD_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: grafana-alerting-secret
+                  key: discord-webhook-url
             # Disable sign-up to prevent unauthorised accounts
             - name: GF_USERS_ALLOW_SIGN_UP
               value: "false"
@@ -153,6 +169,9 @@ spec:
             - name: grafana-dashboards-provider
               mountPath: /etc/grafana/provisioning/dashboards
               readOnly: true
+            - name: grafana-alerting
+              mountPath: /etc/grafana/provisioning/alerting
+              readOnly: true
             - name: grafana-tmp
               mountPath: /tmp
           livenessProbe:
@@ -178,6 +197,9 @@ spec:
         - name: grafana-dashboards-provider
           configMap:
             name: grafana-dashboards-provider
+        - name: grafana-alerting
+          configMap:
+            name: grafana-alerting
         - name: grafana-tmp
           emptyDir: {}
 
