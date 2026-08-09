@@ -17,11 +17,11 @@ jobs:
       matrix:
         include:
           - name: php-app
-            dockerfile: ./Dockerfile
-            image: my-php-app:${{ github.sha }}
+            dockerfile: ./php-webapp/Dockerfile
+            image: php-app:${{ github.sha }}
           - name: sql-db
-            dockerfile: ./sql/Dockerfile
-            image: my-sql-image:${{ github.sha }}
+            dockerfile: ./mysql/Dockerfile
+            image: sql-db:${{ github.sha }}
 
     steps:
       - name: Checkout
