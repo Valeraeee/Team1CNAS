@@ -11,7 +11,8 @@ final class UpdateTest extends TestCase
 
     protected function setUp(): void
     {
-        require_once __DIR__ . '/../db.php';
+        // NOSONAR
+        require __DIR__ . '/../db.php';
         /** @var mysqli $conn */
         $this->conn = $conn;
 
