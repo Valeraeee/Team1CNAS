@@ -143,6 +143,22 @@ jobs:
       - name: Apply Namespaces First
         run: find k8s/ -type f -name "*namespace*.yaml" -exec kubectl apply -f {} \; || true
 
+      - name: Create Grafana Administrator Secret
+        env:
+          GRAFANA_ADMIN_USER: ${{ secrets.GRAFANA_ADMIN_USER }}
+          GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+        run: |
+          : "${GRAFANA_ADMIN_USER:?Set the GRAFANA_ADMIN_USER repository secret}"
+          : "${GRAFANA_ADMIN_PASSWORD:?Set the GRAFANA_ADMIN_PASSWORD repository secret}"
+          if [ "${#GRAFANA_ADMIN_PASSWORD}" -lt 16 ]; then
+            echo "GRAFANA_ADMIN_PASSWORD must contain at least 16 characters."
+            exit 1
+          fi
+          kubectl -n monitoring create secret generic grafana-secret \
+            --from-literal=admin-user="$GRAFANA_ADMIN_USER" \
+            --from-literal=admin-password="$GRAFANA_ADMIN_PASSWORD" \
+            --dry-run=client -o yaml | kubectl apply -f -
+
       - name: Apply All Kubernetes Manifests Recursively
         run: kubectl apply -f k8s/ --recursive
 
@@ -150,6 +166,16 @@ jobs:
         run: |
           kubectl rollout restart deployment --all || true
           kubectl rollout restart statefulset --all || true
+          kubectl -n monitoring rollout restart deployment --all
+          kubectl -n monitoring rollout restart daemonset --all
+          kubectl -n monitoring rollout status deployment/grafana --timeout=180s
+
+      # GF_SECURITY_ADMIN_PASSWORD initializes only a new Grafana database.
+      # Reset the live admin account too, so rotation also works with the PVC.
+      - name: Rotate Existing Grafana Administrator Password
+        run: >-
+          kubectl -n monitoring exec deployment/grafana --
+          sh -c 'grafana cli --homepath /usr/share/grafana admin reset-admin-password "$GF_SECURITY_ADMIN_PASSWORD"'
 
       # Step 10: Team Notifications (Discord Webhook via cURL)
       - name: Notify Discord on Success
