@@ -1,0 +1,41 @@
+name: Trivy Vulnerability Scan
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # needed to upload SARIF to GitHub Security tab
+
+    strategy:
+      matrix:
+        include:
+          - name: php-app
+            dockerfile: ./Dockerfile
+            image: my-php-app:${{ github.sha }}
+          - name: sql-db
+            dockerfile: ./sql/Dockerfile
+            image: my-sql-image:${{ github.sha }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build ${{ matrix.name }} image
+        run: docker build -f ${{ matrix.dockerfile }} -t ${{ matrix.image }} .
+
+      - name: Run Trivy scan on ${{ matrix.name }}
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: ${{ matrix.image }}
+          format: table
+          exit-code: '1'          # fail the build on unresolved findings
+          ignore-unfixed: true    # hide CVEs with no available patch
+          severity: 'CRITICAL,HIGH'
+          trivyignores: .trivyignore   # same file for both images
