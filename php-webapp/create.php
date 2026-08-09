@@ -1,5 +1,5 @@
 <?php
-include 'db.php';
+include_once 'db.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $name  = $_POST['name'];
@@ -13,12 +13,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 ?>
 <!DOCTYPE html>
-<html><body>
-<h2>Create New Team Member</h2>
-<form method="POST">
-    Name: <input name="name" required><br><br>
-    Email: <input name="email" required><br><br>
-    <button type="submit">Create</button>
-</form>
-<a href="index.php">Back</a>
-</body></html>
+<html lang="en">
+<head>
+    <title>Create New Team Member</title>
+</head>
+<body>
+    <form method="POST">
+        <label for="name">Name:</label>
+        <input type="text" id="name" name="name" required><br><br>
+
+        <label for="email">Email:</label>
+        <input type="email" id="email" name="email" required><br><br>
+
+        <button type="submit">Create</button>
+    </form>
+
+    <a href="index.php">Back</a>
+</body>
+</html>
