@@ -216,3 +216,83 @@ data:
               severity: warning
               source: cnas-runtime
             isPaused: false
+
+---
+# Suspended test template. It creates no Pod until an operator explicitly
+# starts a one-off Job with `kubectl create job --from=cronjob/...`.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: grafana-alerting-test
+  namespace: monitoring
+spec:
+  # A schedule is required by the API, but suspend prevents scheduled runs.
+  schedule: "0 0 1 1 *"
+  suspend: true
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 300
+      template:
+        metadata:
+          labels:
+            app: grafana-alert-test
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: send-test-notification
+              image: curlimages/curl:8.10.1
+              imagePullPolicy: IfNotPresent
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+              env:
+                - name: GRAFANA_ADMIN_USER
+                  valueFrom:
+                    secretKeyRef:
+                      name: grafana-secret
+                      key: admin-user
+                - name: GRAFANA_ADMIN_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: grafana-secret
+                      key: admin-password
+                - name: DISCORD_WEBHOOK_URL
+                  valueFrom:
+                    secretKeyRef:
+                      name: grafana-alerting-secret
+                      key: discord-webhook-url
+              command:
+                - /bin/sh
+                - -ec
+              args:
+                - |
+                  payload="$(printf '{"receivers":[{"name":"discord-runtime-alerts-test","grafana_managed_receiver_configs":[{"uid":"discord-runtime-test","name":"discord-runtime-test","type":"discord","disableResolveMessage":false,"settings":{"url":"%s","use_discord_username":true}}]}]}' "$DISCORD_WEBHOOK_URL")"
+                  curl --fail --silent --show-error \
+                    --output /dev/null \
+                    --user "$GRAFANA_ADMIN_USER:$GRAFANA_ADMIN_PASSWORD" \
+                    --header 'Content-Type: application/json' \
+                    --request POST \
+                    --data "$payload" \
+                    http://grafana-service:3000/api/alertmanager/grafana/config/api/v1/receivers/test
+                  printf 'Grafana Discord test notification sent successfully.\n'
+              resources:
+                requests:
+                  cpu: "10m"
+                  memory: "16Mi"
+                  ephemeral-storage: "10Mi"
+                limits:
+                  cpu: "100m"
+                  memory: "64Mi"
+                  ephemeral-storage: "50Mi"

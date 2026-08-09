@@ -93,11 +93,26 @@ kubectl -n monitoring logs deployment/grafana | grep -i provisioning
 kubectl -n monitoring get secret grafana-alerting-secret
 ```
 
-In Grafana, open **Alerting > Contact points**, select
-`discord-runtime-alerts`, and use **Test**. Then open **Alerting > Alert rules**
-and confirm both rules appear under `CNAS Runtime Alerts`.
+In Grafana, open **Alerting > Alert rules** and confirm both rules appear under
+`CNAS Runtime Alerts`. The Discord contact point is file-provisioned, so Grafana
+10.4.3 deliberately makes it read-only and does not show the UI **Test** button.
 
-To demonstrate the availability alert safely:
+To send a safe test through Grafana without stopping the application, start a
+one-off Job from the suspended `grafana-alerting-test` template:
+
+```bash
+TEST_JOB="grafana-alert-test-$(date +%s)"
+kubectl -n monitoring create job --from=cronjob/grafana-alerting-test "$TEST_JOB"
+kubectl -n monitoring wait --for=condition=complete "job/$TEST_JOB" --timeout=120s
+kubectl -n monitoring logs "job/$TEST_JOB"
+```
+
+The logs should say `Grafana Discord test notification sent successfully`, and
+Discord should receive a `TestAlert` notification. The completed Job is removed
+automatically after five minutes. The webhook and Grafana password are read
+from Kubernetes Secrets and are not printed.
+
+To demonstrate a real availability alert and recovery:
 
 ```bash
 # Temporarily remove the HPA so it does not immediately restore three replicas.
