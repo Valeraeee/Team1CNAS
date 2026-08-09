@@ -1,0 +1,252 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: scaling-notifier
+  namespace: monitoring
+automountServiceAccountToken: true
+
+---
+# The notifier only needs to read the php-app HPA in the default namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: scaling-notifier-hpa-reader
+  namespace: default
+rules:
+  - apiGroups: ["autoscaling"]
+    resources: ["horizontalpodautoscalers"]
+    resourceNames: ["php-app-hpa"]
+    verbs: ["get"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: scaling-notifier-hpa-reader
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: scaling-notifier-hpa-reader
+subjects:
+  - kind: ServiceAccount
+    name: scaling-notifier
+    namespace: monitoring
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scaling-notifier-script
+  namespace: monitoring
+data:
+  notifier.py: |
+    import datetime
+    import json
+    import os
+    import ssl
+    import time
+    import urllib.error
+    import urllib.parse
+    import urllib.request
+
+
+    TOKEN_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    CA_PATH = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+    HPA_NAMESPACE = os.getenv("HPA_NAMESPACE", "default")
+    HPA_NAME = os.getenv("HPA_NAME", "php-app-hpa")
+    POLL_SECONDS = int(os.getenv("POLL_SECONDS", "15"))
+    DISCORD_WEBHOOK_URL = os.environ["DISCORD_WEBHOOK_URL"]
+
+    API_URL = (
+        "https://kubernetes.default.svc/apis/autoscaling/v2/namespaces/"
+        f"{urllib.parse.quote(HPA_NAMESPACE)}/horizontalpodautoscalers/"
+        f"{urllib.parse.quote(HPA_NAME)}"
+    )
+
+    with open(TOKEN_PATH, encoding="utf-8") as token_file:
+        TOKEN = token_file.read().strip()
+
+    KUBE_TLS = ssl.create_default_context(cafile=CA_PATH)
+    INTERNET_TLS = ssl.create_default_context()
+
+
+    def read_hpa():
+        request = urllib.request.Request(
+            API_URL,
+            headers={"Authorization": f"Bearer {TOKEN}"},
+        )
+        with urllib.request.urlopen(request, context=KUBE_TLS, timeout=10) as response:
+            return json.load(response)
+
+
+    def metric_summary(hpa):
+        summaries = []
+        for metric in hpa.get("status", {}).get("currentMetrics", []):
+            if metric.get("type") != "Resource":
+                continue
+            resource = metric.get("resource", {})
+            name = resource.get("name", "resource")
+            utilization = resource.get("current", {}).get("averageUtilization")
+            if utilization is not None:
+                summaries.append(f"{name}: {utilization}%")
+        return ", ".join(summaries) or "Resource metrics unavailable"
+
+
+    def notify(previous_replicas, current_replicas, hpa):
+        scaled_up = current_replicas > previous_replicas
+        direction = "up" if scaled_up else "down"
+        color = 0x2ECC71 if scaled_up else 0x3498DB
+        desired = hpa.get("status", {}).get("desiredReplicas", current_replicas)
+
+        payload = {
+            "username": "Scaling Bot",
+            "allowed_mentions": {"parse": []},
+            "embeds": [
+                {
+                    "title": f"PHP application scaled {direction}",
+                    "description": (
+                        f"Kubernetes changed the running replica count from "
+                        f"**{previous_replicas}** to **{current_replicas}**."
+                    ),
+                    "color": color,
+                    "fields": [
+                        {"name": "HPA", "value": HPA_NAME, "inline": True},
+                        {"name": "Namespace", "value": HPA_NAMESPACE, "inline": True},
+                        {"name": "Desired replicas", "value": str(desired), "inline": True},
+                        {"name": "Current metrics", "value": metric_summary(hpa)},
+                    ],
+                    "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                }
+            ],
+        }
+
+        request = urllib.request.Request(
+            DISCORD_WEBHOOK_URL,
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(request, context=INTERNET_TLS, timeout=10) as response:
+            if response.status not in (200, 204):
+                raise RuntimeError(f"Discord returned HTTP {response.status}")
+
+
+    previous_replicas = None
+    print(f"Watching {HPA_NAMESPACE}/{HPA_NAME} every {POLL_SECONDS} seconds", flush=True)
+
+    while True:
+        try:
+            hpa = read_hpa()
+            current_replicas = int(hpa.get("status", {}).get("currentReplicas", 0))
+
+            if previous_replicas is None:
+                previous_replicas = current_replicas
+                print(f"Initial replica count: {current_replicas}", flush=True)
+            elif current_replicas != previous_replicas:
+                notify(previous_replicas, current_replicas, hpa)
+                print(
+                    f"Discord notified: replicas {previous_replicas} -> {current_replicas}",
+                    flush=True,
+                )
+                previous_replicas = current_replicas
+        except (OSError, ValueError, RuntimeError, urllib.error.URLError) as error:
+            print(f"Notifier error: {error}", flush=True)
+
+        time.sleep(POLL_SECONDS)
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scaling-notifier
+  namespace: monitoring
+  labels:
+    app: scaling-notifier
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: scaling-notifier
+  template:
+    metadata:
+      labels:
+        app: scaling-notifier
+    spec:
+      serviceAccountName: scaling-notifier
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+      containers:
+        - name: notifier
+          image: python:3.12-alpine
+          imagePullPolicy: IfNotPresent
+          command: ["python", "/app/notifier.py"]
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+            - name: HPA_NAMESPACE
+              value: default
+            - name: HPA_NAME
+              value: php-app-hpa
+            - name: POLL_SECONDS
+              value: "15"
+            - name: DISCORD_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: scaling-notifier-discord
+                  key: webhook-url
+          resources:
+            requests:
+              cpu: "25m"
+              memory: "32Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: script
+              mountPath: /app
+              readOnly: true
+      volumes:
+        - name: script
+          configMap:
+            name: scaling-notifier-script
+
+---
+# The monitoring namespace is default-deny. This pod needs DNS plus HTTPS to
+# read the Kubernetes API and post notifications to Discord.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-scaling-notifier-egress
+  namespace: monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app: scaling-notifier
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
+        - protocol: TCP
+          port: 443
