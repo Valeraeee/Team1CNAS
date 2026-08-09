@@ -105,12 +105,13 @@ TEST_JOB="grafana-alert-test-$(date +%s)"
 kubectl -n monitoring create job --from=cronjob/grafana-alerting-test "$TEST_JOB"
 kubectl -n monitoring wait --for=condition=complete "job/$TEST_JOB" --timeout=120s
 kubectl -n monitoring logs "job/$TEST_JOB"
+kubectl -n monitoring delete job "$TEST_JOB"
 ```
 
 The logs should say `Grafana Discord test notification sent successfully`, and
-Discord should receive a `TestAlert` notification. The completed Job is removed
-automatically after five minutes. The webhook and Grafana password are read
-from Kubernetes Secrets and are not printed.
+Discord should receive a `TestAlert` notification. The final command removes the
+completed test Job. The webhook and Grafana password are read from Kubernetes
+Secrets and are not printed.
 
 To demonstrate a real availability alert and recovery:
 
