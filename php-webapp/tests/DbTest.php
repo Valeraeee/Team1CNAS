@@ -6,6 +6,7 @@ final class DbTest extends TestCase
 {
     public function testConnectionIsMysqliInstance(): void
     {
+        // NOSONAR
         require __DIR__ . '/../db.php';
         /** @var mysqli $conn */
         $this->assertInstanceOf(mysqli::class, $conn);
@@ -14,6 +15,7 @@ final class DbTest extends TestCase
 
     public function testConnectionHasNoConnectError(): void
     {
+        // NOSONAR
         require __DIR__ . '/../db.php';
         /** @var mysqli $conn */
         $this->assertSame(0, $conn->connect_errno);
