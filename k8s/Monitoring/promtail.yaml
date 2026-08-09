@@ -168,11 +168,13 @@ spec:
                   fieldPath: spec.nodeName
           resources:
             requests:
+              ephemeral-storage: "1Gi"
               cpu: "50m"
               memory: "64Mi"
             limits:
               cpu: "200m"
               memory: "256Mi"
+              ephemeral-storage: "1Gi"
           volumeMounts:
             - name: promtail-config
               mountPath: /etc/promtail
