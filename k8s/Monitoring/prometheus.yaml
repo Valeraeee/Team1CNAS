@@ -285,9 +285,11 @@ spec:
               containerPort: 9117
           resources:
             requests:
+              ephemeral-storage: "1Gi"
               cpu: "25m"
               memory: "32Mi"
             limits:
+              ephemeral-storage: "1Gi"
               cpu: "100m"
               memory: "64Mi"
           livenessProbe:
