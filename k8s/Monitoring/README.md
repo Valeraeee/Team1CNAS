@@ -12,8 +12,9 @@ Add these encrypted GitHub Actions repository secrets:
 - `GRAFANA_ADMIN_USER`
 - `GRAFANA_ADMIN_PASSWORD` (use a unique randomly generated value of at least
   16 characters)
-- `DISCORD_WEBHOOK` (Discord channel webhook used by both CI/CD and Grafana
-  runtime alerts)
+- `DISCORD_WEBHOOK` (your teammate's webhook for CI/CD pipeline notifications)
+- `GRAFANA_DISCORD_WEBHOOK` (a separate webhook that targets the
+  `monitoring-alerts` channel for Grafana runtime alerts)
 
 The deployment workflow creates or updates `grafana-secret` and
 `grafana-alerting-secret` with `kubectl` before applying the manifests. Secret
@@ -33,16 +34,16 @@ Create the namespace and Secret without writing the password to disk:
 kubectl apply -f k8s/Monitoring/namespace.yaml
 read -rsp 'Grafana admin password: ' GRAFANA_ADMIN_PASSWORD
 echo
-read -rsp 'Discord webhook URL: ' DISCORD_WEBHOOK_URL
+read -rsp 'Grafana Discord webhook URL: ' GRAFANA_DISCORD_WEBHOOK_URL
 echo
 kubectl -n monitoring create secret generic grafana-secret \
   --from-literal=admin-user='admin' \
   --from-literal=admin-password="$GRAFANA_ADMIN_PASSWORD" \
   --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n monitoring create secret generic grafana-alerting-secret \
-  --from-literal=discord-webhook-url="$DISCORD_WEBHOOK_URL" \
+  --from-literal=discord-webhook-url="$GRAFANA_DISCORD_WEBHOOK_URL" \
   --dry-run=client -o yaml | kubectl apply -f -
-unset GRAFANA_ADMIN_PASSWORD DISCORD_WEBHOOK_URL
+unset GRAFANA_ADMIN_PASSWORD GRAFANA_DISCORD_WEBHOOK_URL
 kubectl apply -f k8s/ --recursive
 ```
 
@@ -83,6 +84,27 @@ application or CPU usage returns to normal. The alert configuration is mounted
 read-only and the webhook URL exists only in `grafana-alerting-secret`.
 The alerts use a dedicated read-only `Prometheus Alerting` data source with a
 fixed UID, leaving the existing dashboard data source unchanged.
+
+Keep `DISCORD_WEBHOOK` and `GRAFANA_DISCORD_WEBHOOK` separate. Changing the
+Grafana destination requires updating only `GRAFANA_DISCORD_WEBHOOK` in
+**GitHub > Settings > Secrets and variables > Actions** and rerunning the
+workflow. The workflow updates `grafana-alerting-secret` and restarts Grafana,
+which reloads the contact point with the new webhook.
+
+## Optional enhancement: CNAS runtime dashboard
+
+`grafana-runtime-dashboard.yaml` provisions **CNAS Runtime Monitoring** under
+the **CNAS** Grafana folder. It contains four panels:
+
+- PHP Pod CPU as a percentage of the configured `200m` request, including the
+  same 80% threshold used by the high-CPU alert.
+- PHP Pod working-set memory as a percentage of the configured `256Mi` request.
+- Kubernetes node CPU usage from cAdvisor.
+- Current PHP application availability from `apache_up{job="php-app"}`.
+
+The dashboard uses the fixed `prometheus-alerts` data source UID and refreshes
+every 30 seconds. It is provisioned read-only so the repository remains the
+source of truth.
 
 ### Validation and demonstration
 
@@ -128,6 +150,16 @@ Discord should receive a firing notification followed by a resolved
 notification. The final command restores the HPA from its version-controlled
 manifest after the controlled availability test.
 
-To demonstrate the high-CPU alert, reuse the existing BusyBox load generator
-and sustain load for at least six minutes. This rule deliberately has a longer
-pending period to avoid alerts for brief spikes.
+To demonstrate the high-CPU alert, run a bounded PHP CPU loop in one application
+Pod. It stops automatically after six and a half minutes:
+
+```bash
+PHP_POD=$(kubectl -n default get pod -l app=php-app \
+  -o jsonpath='{.items[0].metadata.name}')
+kubectl -n default exec "$PHP_POD" -c php -- \
+  php -r '$end=microtime(true)+390; while (microtime(true)<$end) {}'
+```
+
+The rule deliberately has a five-minute pending period to avoid alerts for
+brief spikes. Discord should receive a firing notification and then a resolved
+notification after the bounded load ends.

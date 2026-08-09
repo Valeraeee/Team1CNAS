@@ -1,6 +1,6 @@
 ---
 # Grafana-managed runtime alerts and Discord notification routing.
-# The webhook URL is injected through DISCORD_WEBHOOK_URL at runtime; no
+# The webhook URL is injected through GRAFANA_DISCORD_WEBHOOK_URL at runtime; no
 # credential is stored in this ConfigMap or in the repository.
 apiVersion: v1
 kind: ConfigMap
@@ -19,7 +19,7 @@ data:
             type: discord
             disableResolveMessage: false
             settings:
-              url: $DISCORD_WEBHOOK_URL
+              url: $GRAFANA_DISCORD_WEBHOOK_URL
               use_discord_username: true
 
     # This deployment provisions only the two CNAS runtime rules, so all
@@ -267,7 +267,7 @@ spec:
                     secretKeyRef:
                       name: grafana-secret
                       key: admin-password
-                - name: DISCORD_WEBHOOK_URL
+                - name: GRAFANA_DISCORD_WEBHOOK_URL
                   valueFrom:
                     secretKeyRef:
                       name: grafana-alerting-secret
@@ -277,7 +277,7 @@ spec:
                 - -ec
               args:
                 - |
-                  payload="$(printf '{"receivers":[{"name":"discord-runtime-alerts-test","grafana_managed_receiver_configs":[{"uid":"discord-runtime-test","name":"discord-runtime-test","type":"discord","disableResolveMessage":false,"settings":{"url":"%s","use_discord_username":true}}]}]}' "$DISCORD_WEBHOOK_URL")"
+                  payload="$(printf '{"receivers":[{"name":"discord-runtime-alerts-test","grafana_managed_receiver_configs":[{"uid":"discord-runtime-test","name":"discord-runtime-test","type":"discord","disableResolveMessage":false,"settings":{"url":"%s","use_discord_username":true}}]}]}' "$GRAFANA_DISCORD_WEBHOOK_URL")"
                   curl --fail --silent --show-error \
                     --output /dev/null \
                     --user "$GRAFANA_ADMIN_USER:$GRAFANA_ADMIN_PASSWORD" \
