@@ -14,10 +14,6 @@ rules:
       - endpoints # knows which pod belongs to which service
       - pods # discover newly created pod
     verbs: ["get", "list", "watch"] # allow above resources to read show and monitor
-  - apiGroups: ["extensions", "networking.k8s.io"]
-    resources:
-      - ingresses #central entry point for monitoring resources
-    verbs: ["get", "list", "watch"]
   - nonResourceURLs: ["/metrics"] # endpoint exposed by kubelet on each kurbenetes node
     verbs: ["get"]
 
@@ -216,17 +212,27 @@ spec:
       securityContext:
         runAsNonRoot: true # best security practice
         runAsUser: 65534   # nobody
+        runAsGroup: 65534
         fsGroup: 65534
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
 
       containers:
         - name: prometheus
           image: prom/prometheus:v2.52.0 # Specify which Prometheus image to run
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
           args:
             - "--config.file=/etc/prometheus/prometheus.yml" # Loads prometheus config from ConfigMap
             - "--storage.tsdb.path=/prometheus"
             # Retain 15 days of metrics
             - "--storage.tsdb.retention.time=15d"
-            - "--web.enable-lifecycle"   # allows hot-reload via POST /-/reload
           ports:
             - containerPort: 9090
               name: web
@@ -243,6 +249,7 @@ spec:
           volumeMounts:
             - name: config-volume
               mountPath: /etc/prometheus
+              readOnly: true
             - name: prometheus-storage
               mountPath: /prometheus
 
@@ -264,6 +271,13 @@ spec:
         # sidecar converts it and exposes compatible metrics on port 9117.
         - name: apache-exporter
           image: lusotycoon/apache-exporter:v1.1.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
           args:
             - '--scrape_uri=http://php-app.default.svc.cluster.local/server-status?auto'
           ports:
@@ -317,4 +331,3 @@ spec:
       port: 9090
       targetPort: 9090
       nodePort: 30090
-

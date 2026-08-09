@@ -20,8 +20,6 @@ metadata:
 rules:
   - apiGroups: [""]
     resources:
-      - nodes
-      - services
       - pods
     verbs: ["get", "list", "watch"]
 
@@ -140,6 +138,9 @@ spec:
         prometheus.io/port: "9080"
     spec:
       serviceAccountName: promtail
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
 
       # Tolerate the control-plane taint so logs from control-plane nodes
       # are also collected (optional – remove if you only have worker nodes).
@@ -154,6 +155,13 @@ spec:
       containers:
         - name: promtail
           image: grafana/promtail:2.9.8   # matches the Loki version in loki.yaml
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
           args:
             - "-config.file=/etc/promtail/promtail.yaml"
             - "-config.expand-env=true"
@@ -178,6 +186,7 @@ spec:
           volumeMounts:
             - name: promtail-config
               mountPath: /etc/promtail
+              readOnly: true
             # Read-only access to the node's container log files
             - name: varlog
               mountPath: /var/log
@@ -185,6 +194,8 @@ spec:
             # Writable volume for Promtail to persist its read position file
             - name: positions
               mountPath: /run/promtail
+            - name: promtail-tmp
+              mountPath: /tmp
           readinessProbe:
             httpGet:
               path: /ready
@@ -209,4 +220,6 @@ spec:
         # For a demo cluster this is fine; use a hostPath if you need it to
         # survive pod rescheduling.
         - name: positions
+          emptyDir: {}
+        - name: promtail-tmp
           emptyDir: {}

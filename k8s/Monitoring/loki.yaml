@@ -80,14 +80,26 @@ spec:
       labels:
         app: loki
     spec:
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
+        runAsGroup: 10001
         fsGroup: 10001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
 
       containers:
         - name: loki
           image: grafana/loki:2.9.8
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
           args:
             - "-config.file=/etc/loki/loki.yaml"
           ports:
@@ -107,8 +119,11 @@ spec:
           volumeMounts:
             - name: loki-config
               mountPath: /etc/loki
+              readOnly: true
             - name: loki-storage
               mountPath: /loki
+            - name: loki-tmp
+              mountPath: /tmp
           livenessProbe:
             httpGet:
               path: /ready
@@ -129,6 +144,8 @@ spec:
         - name: loki-storage
           persistentVolumeClaim:
             claimName: loki-pvc
+        - name: loki-tmp
+          emptyDir: {}
 
 ---
 # ClusterIP only – Loki is an internal service consumed by Grafana and Promtail.
