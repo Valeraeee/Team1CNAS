@@ -322,3 +322,31 @@ spec:
       ports:
         - protocol: TCP
           port: 3100
+
+# Grafana must reach Discord's public webhook endpoint. Kubernetes NetworkPolicy
+# cannot select an external service by DNS name, so permit only public HTTPS
+# destinations while continuing to block private networks and cloud metadata.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-grafana-discord-https
+  namespace: monitoring
+spec:
+  podSelector:
+    matchLabels:
+      app: grafana
+  policyTypes:
+    - Egress
+  egress:
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
