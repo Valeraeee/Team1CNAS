@@ -1,7 +1,7 @@
 FROM php:8.2-apache
 WORKDIR /var/www/html
 COPY *.php .
-RUN apt-get update && apt-get upgrade -y \
+RUN apt-get update && apt-get upgrade -y && apt-get clean \
     && docker-php-ext-install mysqli \
     && rm -rf /var/lib/apt/lists/* \
     # Iterates through each php file in the workdir then checks its syntax. Doesn't help with security
