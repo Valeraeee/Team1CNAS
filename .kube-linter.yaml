@@ -1,8 +1,0 @@
-checks:
-  ignore:
-    - "no-anti-affinity"
-    - "no-read-only-root-fs"
-    - "latest-tag"
-    - "run-as-non-root"
-    - "pdb-unhealthy-pod-eviction-policy"
-    - "dangling-service"
