@@ -143,7 +143,15 @@ jobs:
         uses: stackrox/kube-linter-action@87802a2f4e01abebb3ee3c67a3002fea71f6eae5 # v1
         with:
           directory: k8s
-          config: .kube-linter.yaml
+          config: |
+            checks:
+              ignore:
+                - "no-anti-affinity"
+                - "no-read-only-root-fs"
+                - "latest-tag"
+                - "run-as-non-root"
+                - "pdb-unhealthy-pod-eviction-policy"
+                - "dangling-service"
 
       # Step 8: Cloud Authentication & GKE Credentials Setup
       - name: Authenticate to Google Cloud
