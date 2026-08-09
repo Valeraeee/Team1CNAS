@@ -13,6 +13,7 @@ spec:
       labels:
         app: sql-db
     spec:
+      automountServiceAccountToken: false
       containers:
       - name: mysql
         securityContext:
