@@ -1,0 +1,3 @@
+# Secrets must be created at deployment time, never committed.
+k8s/Monitoring/grafana-secret.yaml
+k8s/Monitoring/*-secret.local.yaml
