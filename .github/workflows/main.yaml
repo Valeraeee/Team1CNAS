@@ -143,7 +143,7 @@ jobs:
         uses: stackrox/kube-linter-action@87802a2f4e01abebb3ee3c67a3002fea71f6eae5 # v1
         with:
           directory: k8s
-          config: .kube-linter.yaml
+          config: ${{ github.workspace }}/.kube-linter.yaml
 
       # Step 8: Cloud Authentication & GKE Credentials Setup
       - name: Authenticate to Google Cloud
