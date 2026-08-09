@@ -1,9 +1,12 @@
 <?php
+require_once 'auth_check.php';
 include_once 'db.php';
 
 $id = $_GET['id'] ?? null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    verifyCsrfToken();
+
     $name  = $_POST['name'];
     $email = $_POST['email'];
     $stmt = $conn->prepare("UPDATE users SET name=?, email=? WHERE id=?");
@@ -30,6 +33,8 @@ $stmt->close();
 <body>
 <h2>Edit Member</h2>
 <form method="POST">
+    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
+
     <label for="name">Member Name:</label>
     <input type="text" id="name" name="name" value="<?= htmlspecialchars($user['name'] ?? '') ?>" required><br><br>
 

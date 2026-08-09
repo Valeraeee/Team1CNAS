@@ -1,7 +1,10 @@
 <?php
+require_once 'auth_check.php';
 include_once 'db.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    verifyCsrfToken();
+
     $name  = $_POST['name'];
     $email = $_POST['email'];
     $stmt = $conn->prepare("INSERT INTO users (name, email) VALUES (?, ?)");
@@ -19,6 +22,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body>
     <form method="POST">
+        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
+
         <label for="name">Name:</label>
         <input type="text" id="name" name="name" required><br><br>
 

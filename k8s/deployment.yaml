@@ -93,6 +93,16 @@ spec:
                 secretKeyRef:
                   name: mysql-secret
                   key: DB_PASSWORD
+           - name: ADMIN_USERNAME
+             valueFrom:
+             secretKeyRef:
+               name: auth-secret
+               key: ADMIN_USERNAME
+           - name: ADMIN_PASSWORD_HASH
+             valueFrom:
+               secretKeyRef:
+                 name: auth-secret
+                 key: ADMIN_PASSWORD_HASH
 
           startupProbe:
             httpGet:
