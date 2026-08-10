@@ -70,9 +70,6 @@ spec:
             runAsGroup: 1234
 
           env:
-            - name: DB_PASSWORD
-              value: "SuperSecretPassword123!"   # <--- Hardcoded secret!
-              
             - name: DB_HOST
               value: "mysql"
 
