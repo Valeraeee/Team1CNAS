@@ -18,7 +18,7 @@ spec:
       - name: mysql
         securityContext:
           privileged: false # Prevents running container as privileged
-        image: asia-southeast1-docker.pkg.dev/cnas-team1-project/cnas-images/sql-db:latest
+        image: docker.io/robbinyew/mysql:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3306

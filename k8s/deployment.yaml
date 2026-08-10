@@ -43,7 +43,7 @@ spec:
 
       containers:
         - name: php
-          image: asia-southeast1-docker.pkg.dev/cnas-team1-project/cnas-images/php-webapp:latest
+          image: docker.io/robbinyew/php-webapp:latest
           imagePullPolicy: IfNotPresent
 
           ports:
