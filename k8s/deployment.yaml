@@ -70,6 +70,9 @@ spec:
             runAsGroup: 1234
 
           env:
+            - name: DEMO_API_KEY
+              value: "AKIAIOSFODNN7EXAMPLE"
+              
             - name: DB_HOST
               value: "mysql"
 
