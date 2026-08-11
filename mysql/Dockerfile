@@ -1,5 +1,6 @@
-FROM mysql:latest
+FROM mysql:8.0
 COPY *.sql /docker-entrypoint-initdb.d/
-ENV MYSQL_DATABASE mydb
-ENV MYSQL_ROOT_PASSWORD rootpass
+RUN microdnf update && microdnf upgrade -y \
+    && microdnf install -y python3-cryptography \
+    && microdnf clean all
 EXPOSE 3306

@@ -4,22 +4,20 @@ kind: Deployment
 
 metadata:
   name: php-app
+  namespace: default
   labels:
     app: php-app
 
 spec:
   replicas: 3
-
   revisionHistoryLimit: 5
 
-  # Zero-downtime rolling updates:
-  # maxUnavailable: 0 - never take a pod down before a new one is ready
-  # maxSurge: 1       - allow one extra pod above desired count during rollout
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxUnavailable: 0
-      maxSurge: 1
+      # Replace one pod at a time while keeping at least two available.
+      maxUnavailable: 1
+      maxSurge: 0
 
   selector:
     matchLabels:
@@ -31,49 +29,81 @@ spec:
         app: php-app
 
     spec:
+      # The PHP application does not require Kubernetes API access.
+      automountServiceAccountToken: false
+
+      # Distribute replicas evenly between GKE worker nodes.
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: php-app
+
       containers:
         - name: php
-          image: robbinyew/php-app:latest
-          imagePullPolicy: Always
+          image: docker.io/robbinyew/php-webapp:latest
+          imagePullPolicy: IfNotPresent
 
           ports:
             - containerPort: 80
 
-          # Resource Requests & Limits
-          # Requests: guaranteed resources scheduled on the node
-          # Limits: hard cap - container is killed/throttled if exceeded
           resources:
             requests:
               cpu: "200m"
               memory: "256Mi"
+              ephemeral-storage: "100Mi"
             limits:
               cpu: "500m"
               memory: "512Mi"
+              ephemeral-storage: "500Mi"
 
-          # DB connection env vars (matched to php-webapp/db.php)
+          securityContext:
+            privileged: false
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+              - ALL
+            runAsUser: 1234
+            runAsGroup: 1234
+
           env:
             - name: DB_HOST
               value: "mysql"
+
             - name: DB_PORT
               value: "3306"
+
             - name: DB_NAME
               valueFrom:
                 secretKeyRef:
                   name: mysql-secret
                   key: DB_NAME
+
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
                   name: mysql-secret
                   key: DB_USER
+
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: mysql-secret
                   key: DB_PASSWORD
+            - name: ADMIN_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secret
+                  key: ADMIN_USERNAME
+            - name: ADMIN_PASSWORD_HASH
+              valueFrom:
+                secretKeyRef:
+                  name: auth-secret
+                  key: ADMIN_PASSWORD_HASH
 
-          # Startup Probe - gives the app time to boot before liveness kicks in
-          # 30 attempts x 10s = 300s max startup window
           startupProbe:
             httpGet:
               path: /
@@ -83,7 +113,6 @@ spec:
             timeoutSeconds: 2
             failureThreshold: 30
 
-          # Liveness Probe - restarts container if it becomes unresponsive
           livenessProbe:
             httpGet:
               path: /
@@ -93,8 +122,6 @@ spec:
             timeoutSeconds: 2
             failureThreshold: 3
 
-          # Readiness Probe - removes pod from Service if not ready
-          # prevents traffic reaching pods that aren't ready to serve
           readinessProbe:
             httpGet:
               path: /
@@ -108,5 +135,4 @@ spec:
           terminationMessagePath: /dev/termination-log
           terminationMessagePolicy: File
 
-      # Allow 30s for in-flight requests to finish before pod is killed
       terminationGracePeriodSeconds: 30

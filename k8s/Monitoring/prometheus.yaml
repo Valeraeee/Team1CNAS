@@ -14,10 +14,6 @@ rules:
       - endpoints # knows which pod belongs to which service
       - pods # discover newly created pod
     verbs: ["get", "list", "watch"] # allow above resources to read show and monitor
-  - apiGroups: ["extensions", "networking.k8s.io"]
-    resources:
-      - ingresses #central entry point for monitoring resources
-    verbs: ["get", "list", "watch"]
   - nonResourceURLs: ["/metrics"] # endpoint exposed by kubelet on each kurbenetes node
     verbs: ["get"]
 
@@ -48,7 +44,7 @@ subjects: # who receieves permission
 # Each job maps to a component we want to monitor:
 #   - kubernetes-nodes        : node CPU, memory, disk metrics via kubelet
 #   - kubernetes-pods         : auto-discovers pods that expose /metrics
-#   - php-app                 : our PHP CRUD application pods
+#   - php-app                 : Apache metrics converted by apache-exporter
 #   - mysql-exporter          : MySQL performance metrics (if deployed)
 apiVersion: v1
 kind: ConfigMap # Stores non-sensitive config of file settings different form application
@@ -152,18 +148,9 @@ data:
       # Requires mod_status enabled in the php-webapp Dockerfile.
       # Shows: active/total requests, idle/busy workers, server uptime
       - job_name: 'php-app'
-        static_configs: #Set fixed taraget instead of automatically discovering
-          - targets: ['php-app-service.default.svc.cluster.local:80']
-        metrics_path: /server-status #Apache exposes performance
-        params:
-          auto: [''] # Generates a plain text so Prometheus can easily read
-
-      # ── MySQL exporter (optional, deploy alongside MySQL) ─────────────────
-      # Exposes MySQL internals: connections, queries/s, InnoDB stats, etc.
-      - job_name: 'mysql-exporter'
         static_configs:
-          - targets: ['mysql-exporter.default.svc.cluster.local:9104']
-
+          - targets: ['127.0.0.1:9117']
+        
       # ── Kubernetes API server (Discovers endpoint) ─────────────────────────────────────────────
       - job_name: 'kubernetes-apiservers'
         kubernetes_sd_configs:
@@ -207,6 +194,10 @@ metadata:
     app: prometheus
 spec:
   replicas: 1 # Runs one Prometheus instance
+  # The TSDB uses a ReadWriteOnce persistent disk. Stop the old pod before
+  # starting its replacement so two nodes never attempt to attach it at once.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: prometheus
@@ -221,31 +212,44 @@ spec:
       securityContext:
         runAsNonRoot: true # best security practice
         runAsUser: 65534   # nobody
+        runAsGroup: 65534
         fsGroup: 65534
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
 
       containers:
         - name: prometheus
           image: prom/prometheus:v2.52.0 # Specify which Prometheus image to run
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
           args:
             - "--config.file=/etc/prometheus/prometheus.yml" # Loads prometheus config from ConfigMap
             - "--storage.tsdb.path=/prometheus"
             # Retain 15 days of metrics
             - "--storage.tsdb.retention.time=15d"
-            - "--web.enable-lifecycle"   # allows hot-reload via POST /-/reload
           ports:
             - containerPort: 9090
               name: web
           # Reserve resources and prevent Prometheus from using excessive CPU or memory
           resources:
             requests:
+              ephemeral-storage: "1Gi"
               cpu: "200m"
               memory: "512Mi"
             limits:
+              ephemeral-storage: "1Gi"
               cpu: "500m"
               memory: "1Gi"
           volumeMounts:
             - name: config-volume
               mountPath: /etc/prometheus
+              readOnly: true
             - name: prometheus-storage
               mountPath: /prometheus
 
@@ -261,6 +265,44 @@ spec:
               path: /-/ready
               port: 9090
             initialDelaySeconds: 10
+            periodSeconds: 10
+
+        # Apache's mod_status endpoint is not Prometheus formatted. This
+        # sidecar converts it and exposes compatible metrics on port 9117.
+        - name: apache-exporter
+          image: lusotycoon/apache-exporter:v1.1.1
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+          args:
+            - '--scrape_uri=http://php-app.default.svc.cluster.local/server-status?auto'
+          ports:
+            - name: apache-metrics
+              containerPort: 9117
+          resources:
+            requests:
+              ephemeral-storage: "1Gi"
+              cpu: "25m"
+              memory: "32Mi"
+            limits:
+              ephemeral-storage: "1Gi"
+              cpu: "100m"
+              memory: "64Mi"
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: 9117
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: 9117
+            initialDelaySeconds: 5
             periodSeconds: 10
 
       volumes:

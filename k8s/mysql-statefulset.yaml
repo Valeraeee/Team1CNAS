@@ -13,9 +13,12 @@ spec:
       labels:
         app: sql-db
     spec:
+      automountServiceAccountToken: false
       containers:
       - name: mysql
-        image: robbinyew/sql-db:latest # REPLACE THIS WITH DOCKER HUB REPO. ENSURE IT HAS SQL-DB IMAGE INSIDE
+        securityContext:
+          privileged: false # Prevents running container as privileged
+        image: docker.io/robbinyew/mysql:latest
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 3306
@@ -33,6 +36,15 @@ spec:
         volumeMounts:
         - name: mysql-storage
           mountPath: /var/lib/mysql
+        resources:
+          requests:
+            ephemeral-storage: "5Gi"
+            cpu: "250m"
+            memory: "512Mi"
+          limits:
+            cpu: "1"
+            memory: "1Gi"
+            ephemeral-storage: "5Gi"
   volumeClaimTemplates:
   - metadata:
       name: mysql-storage

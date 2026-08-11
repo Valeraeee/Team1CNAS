@@ -1,0 +1,277 @@
+name: Secure DevSecOps CI/CD Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  devsecops-pipeline:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ${{ secrets.DB_TEST_ROOT_PASSWORD }}
+          MYSQL_DATABASE: ${{ secrets.DB_TEST_NAME }}
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -p$MYSQL_ROOT_PASSWORD"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      DB_HOST: 127.0.0.1
+      DB_PORT: 3306
+      DB_USER: root
+      DB_PASSWORD: ${{ secrets.DB_TEST_ROOT_PASSWORD }}
+      DB_NAME: ${{ secrets.DB_TEST_NAME }}
+
+    steps:
+      # Step 1: Checkout Repository
+      - name: Checkout Repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+
+      - name: Install MySQL Client Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mysql-client
+
+      # Secret scanning
+      - name: Scan Repository for Hardcoded Secrets
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Step 2: Setup PHP and Xdebug
+      - name: Setup PHP and Xdebug
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # v2
+        with:
+          php-version: "8.1"
+          coverage: xdebug
+          extensions: mysqli
+
+      - name: PHP Linting Check
+        run: find . -type f -name "*.php" -exec php -l {} +
+
+      - name: Wait for MySQL to be ready
+        run: |
+          for i in {1..20}; do
+            mysqladmin ping \
+              -h 127.0.0.1 \
+              -P 3306 \
+              -uroot \
+              -p"$DB_PASSWORD" && break
+            sleep 2
+          done
+
+      - name: Load database schema
+        run: |
+          mysql \
+            -h 127.0.0.1 \
+            -P 3306 \
+            -uroot \
+            -p"$DB_PASSWORD" \
+            "$DB_NAME" < mysql/users.sql
+
+      - name: Install Dependencies and Run PHPUnit
+        run: |
+          cd php-webapp
+          composer install
+          ./vendor/bin/phpunit --coverage-clover coverage.xml
+
+      - name: Audit PHP Dependencies
+        run: |
+          cd php-webapp
+          composer audit
+
+      # Step 3: Static Application Security Testing
+      - name: SonarQube Scan
+        uses: sonarsource/sonarqube-scan-action@13990a695682794b53148ff9f6a8b6e22e43955e # v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+      # Step 4: Docker registry authentication
+      - name: Log in to Docker Hub
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Step 5: Build all Docker images
+      - name: Build All Docker Images Recursively
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          find . -mindepth 2 -type f -name "Dockerfile" |
+          while read -r dockerfile; do
+            dir=$(dirname "$dockerfile" | sed 's|^\./||')
+            image_name=$(echo "$dir" | tr '/' '-')
+
+            echo "Building image for directory: $dir as $image_name"
+
+            docker build \
+              -t "${DOCKERHUB_USERNAME}/${image_name}:latest" \
+              -f "$dockerfile" \
+              "$dir"
+          done
+
+      # Step 6: Container vulnerability scanning
+      - name: Scan Built Images with Trivy
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          find . -mindepth 2 -type f -name "Dockerfile" |
+          while read -r dockerfile; do
+            dir=$(dirname "$dockerfile" | sed 's|^\./||')
+            image_name=$(echo "$dir" | tr '/' '-')
+
+            echo "Scanning image: ${image_name}"
+
+            docker run --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v "${PWD}/.trivyignore:/.trivyignore" \
+              aquasec/trivy:0.53.0 image \
+              --format table \
+              --exit-code 1 \
+              --severity CRITICAL,HIGH \
+              --ignore-unfixed \
+              --ignorefile /.trivyignore \
+              "${DOCKERHUB_USERNAME}/${image_name}:latest"
+          done
+
+      # Step 7: Push images to Docker Hub
+      - name: Push All Docker Images to Docker Hub
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+        run: |
+          find . -mindepth 2 -type f -name "Dockerfile" |
+          while read -r dockerfile; do
+            dir=$(dirname "$dockerfile" | sed 's|^\./||')
+            image_name=$(echo "$dir" | tr '/' '-')
+
+            echo "Pushing image: ${image_name}"
+
+            docker push \
+              "${DOCKERHUB_USERNAME}/${image_name}:latest"
+          done
+
+      - name: Scan Kubernetes Manifests with Kube-Linter
+        uses: stackrox/kube-linter-action@87802a2f4e01abebb3ee3c67a3002fea71f6eae5 # v1
+        with:
+          directory: k8s
+          config: ${{ github.workspace }}/.kube-linter.yaml
+
+      # Step 8: Authenticate to Google Cloud and GKE
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@c200f3691d83b41bf9bbd8638997a462592937ed # v2
+        with:
+          workload_identity_provider: "projects/471203131665/locations/global/workloadIdentityPools/github-pool/providers/github-provider"
+          service_account: "cnas-cicd-sa@cnas-team1-project.iam.gserviceaccount.com"
+
+      - name: Get GKE Credentials
+        uses: google-github-actions/get-gke-credentials@64bc7249bbcf78056bb92f14d3cedc2da193946c # v2
+        with:
+          cluster_name: ${{ secrets.GKE_CLUSTER }}
+          location: ${{ secrets.GKE_ZONE }}
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      # Step 9: Deploy Kubernetes manifests
+      - name: Apply Namespaces First
+        run: |
+          find k8s/ -type f -name "*namespace*.yaml" \
+            -exec kubectl apply -f {} \; || true
+
+      - name: Create Grafana Administrator Secret
+        env:
+          GRAFANA_ADMIN_USER: ${{ secrets.GRAFANA_ADMIN_USER }}
+          GRAFANA_ADMIN_PASSWORD: ${{ secrets.GRAFANA_ADMIN_PASSWORD }}
+        run: |
+          : "${GRAFANA_ADMIN_USER:?Set the GRAFANA_ADMIN_USER repository secret}"
+          : "${GRAFANA_ADMIN_PASSWORD:?Set the GRAFANA_ADMIN_PASSWORD repository secret}"
+
+          if [ "${#GRAFANA_ADMIN_PASSWORD}" -lt 16 ]; then
+            echo "GRAFANA_ADMIN_PASSWORD must contain at least 16 characters."
+            exit 1
+          fi
+
+          kubectl -n monitoring create secret generic grafana-secret \
+            --from-literal=admin-user="$GRAFANA_ADMIN_USER" \
+            --from-literal=admin-password="$GRAFANA_ADMIN_PASSWORD" \
+            --dry-run=client -o yaml |
+          kubectl apply -f -
+
+      - name: Create Grafana Alerting Secret
+        env:
+          GRAFANA_DISCORD_WEBHOOK_URL: ${{ secrets.GRAFANA_DISCORD_WEBHOOK }}
+        run: |
+          : "${GRAFANA_DISCORD_WEBHOOK_URL:?Set the GRAFANA_DISCORD_WEBHOOK repository secret}"
+
+          kubectl -n monitoring create secret generic grafana-alerting-secret \
+            --from-literal=discord-webhook-url="$GRAFANA_DISCORD_WEBHOOK_URL" \
+            --dry-run=client -o yaml |
+          kubectl apply -f -
+
+      # Secret used by the HPA scaling notifier.
+      - name: Create HPA Scaling Discord Secret
+        env:
+          SCALING_DISCORD_WEBHOOK: ${{ secrets.SCALING_DISCORD_WEBHOOK }}
+        run: |
+          : "${SCALING_DISCORD_WEBHOOK:?Set the SCALING_DISCORD_WEBHOOK repository secret}"
+
+          kubectl -n monitoring create secret generic scaling-notifier-discord \
+            --from-literal=webhook-url="$SCALING_DISCORD_WEBHOOK" \
+            --dry-run=client -o yaml |
+          kubectl apply -f -
+
+      - name: Apply All Kubernetes Manifests Recursively
+        run: kubectl apply -f k8s/ --recursive
+
+      - name: Force Rollout Restarts
+        run: |
+          kubectl rollout restart deployment -n default || true
+          kubectl rollout restart statefulset -n default || true
+          kubectl -n monitoring rollout restart deployment || true
+          kubectl -n monitoring rollout restart daemonset || true
+          kubectl -n monitoring rollout status deployment/grafana \
+            --timeout=180s
+
+      # Reset the live Grafana administrator password when using an existing PVC.
+      - name: Rotate Existing Grafana Administrator Password
+        run: >-
+          kubectl -n monitoring exec deployment/grafana --
+          sh -c 'grafana cli --homepath /usr/share/grafana
+          admin reset-admin-password "$GF_SECURITY_ADMIN_PASSWORD"'
+
+      # Step 10: CI/CD pipeline notifications
+      - name: Notify Discord on Success
+        if: success()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          curl \
+            -H "Content-Type: application/json" \
+            -X POST \
+            -d '{"embeds":[{"title":"DevSecOps Pipeline Succeeded","description":"Branch: `${{ github.ref_name }}`\nCommit: `${{ github.sha }}`\nStatus: All SAST, SCA, Trivy, IaC and GKE deployment steps passed.","color":65280}]}' \
+            "$DISCORD_WEBHOOK"
+      - name: Notify Discord on Failure
+        if: failure()
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          curl \
+            -H "Content-Type: application/json" \
+            -X POST \
+            -d '{"embeds":[{"title":"DevSecOps Pipeline Failed","description":"Branch: `${{ github.ref_name }}`\nCommit: `${{ github.sha }}`\nTriggered by: `${{ github.actor }}`\nPlease check the GitHub Actions logs for security-gate or build failures.","color":16711680}]}' \
+            "$DISCORD_WEBHOOK"

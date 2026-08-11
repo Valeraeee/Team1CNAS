@@ -1,9 +1,12 @@
 <?php
-include 'db.php';
+require_once 'auth_check.php';
+include_once 'db.php';
 
-$id = $_GET['id'];
+$id = $_GET['id'] ?? null;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    verifyCsrfToken();
+
     $name  = $_POST['name'];
     $email = $_POST['email'];
     $stmt = $conn->prepare("UPDATE users SET name=?, email=? WHERE id=?");
@@ -14,16 +17,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit();
 }
 
-$result = $conn->query("SELECT * FROM users WHERE id=$id");
+// Prepared statement to prevent SQL Injection
+$stmt = $conn->prepare("SELECT * FROM users WHERE id = ?");
+$stmt->bind_param("i", $id);
+$stmt->execute();
+$result = $stmt->get_result();
 $user = $result->fetch_assoc();
+$stmt->close();
 ?>
 <!DOCTYPE html>
-<html><body>
+<html lang="en">
+<head>
+    <title>Edit Team Member</title>
+</head>
+<body>
 <h2>Edit Member</h2>
 <form method="POST">
-    Member Name: <input name="name" value="<?= $user['name'] ?>" required><br><br>
-    Email: <input name="email" value="<?= $user['email'] ?>" required><br><br>
+    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
+
+    <label for="name">Member Name:</label>
+    <input type="text" id="name" name="name" value="<?= htmlspecialchars($user['name'] ?? '') ?>" required><br><br>
+
+    <label for="email">Email:</label>
+    <input type="email" id="email" name="email" value="<?= htmlspecialchars($user['email'] ?? '') ?>" required><br><br>
+
     <button type="submit">Update</button>
 </form>
 <a href="index.php">Back</a>
-</body></html>
+</body>
+</html>
