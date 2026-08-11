@@ -265,7 +265,6 @@ jobs:
             -X POST \
             -d '{"embeds":[{"title":"DevSecOps Pipeline Succeeded","description":"Branch: `${{ github.ref_name }}`\nCommit: `${{ github.sha }}`\nStatus: All SAST, SCA, Trivy, IaC and GKE deployment steps passed.","color":65280}]}' \
             "$DISCORD_WEBHOOK"
-
       - name: Notify Discord on Failure
         if: failure()
         env:
